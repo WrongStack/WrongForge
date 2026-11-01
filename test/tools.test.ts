@@ -155,7 +155,15 @@ async function main(): Promise<void> {
   await extendedTests(dir);
 
   process.chdir("/");
-  fs.rmSync(dir, { recursive: true, force: true });
+  // Windows: an external process holding a handle inside the tree (observed:
+  // a local indexer daemon) makes rmSync throw EPERM long after every test
+  // child exited. The suite's job is tool correctness, not temp hygiene —
+  // retry briefly and warn-and-continue instead of failing on OS temp state.
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`[tools.test] could not remove ${dir} (${(e as NodeJS.ErrnoException).code}) — an external process holds it; leaving it for OS temp cleanup`);
+  }
   console.log("TOOLS TESTS PASSED ✓ (bash, read/write/edit, ls, glob, grep, web_fetch, todos)");
 }
 

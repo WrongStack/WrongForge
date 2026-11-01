@@ -618,10 +618,6 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     // named clients see only their own sessions (legacy sessions, which have
     // no owner on disk, belong to the default key)
     const scopedList = (): unknown[] => (client === "default" ? sessions.list() : sessions.list().filter((s) => (s.owner ?? "default") === client));
-    const sessionVisible = (id: string): boolean => {
-      const meta = sessions.meta(id);
-      return !!meta && (client === "default" || (meta.owner ?? "default") === client);
-    };
 
     if (parts.length === 2) {
       if (method === "GET") return json(res, 200, { sessions: scopedList() }), true;
