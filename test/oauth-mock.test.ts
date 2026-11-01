@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { ClaudeOAuth, CLAUDE_CODE_UA, parsePastedCode, setKeychainReaderForTest } from "../src/oauth.js";
 import { maxRetriesFromEnv, oauthFetch } from "../src/provider.js";
+import { effortCap, effortRejectedOnce, resetEffortRejections } from "../src/effort.js";
 import { runInContext } from "../src/context.js";
 
 // Temp dirs live under the OS temp dir and are removed on exit (pass or fail).
@@ -282,6 +283,84 @@ function main(): Promise<void> {
           busy.close();
         }
 
+        // 3c) effort-cap step-down (F2101, findings.md §21): an org-admin cap
+        //     answers "Invalid effort level" — the provider steps the level
+        //     down per retry (high → medium → …), learns the working level as
+        //     a per-model cap, and the caller only ever sees the success
+        {
+          resetEffortRejections();
+          const seen: (string | undefined)[] = [];
+          let status = 200;
+          const capped = http.createServer((req, res) => {
+            const chunks: Buffer[] = [];
+            req.on("data", (c: Buffer) => chunks.push(c));
+            req.on("end", () => {
+              let level: string | undefined;
+              try {
+                level = JSON.parse(Buffer.concat(chunks).toString("utf8"))?.output_config?.effort;
+              } catch {
+                /* unparseable */
+              }
+              seen.push(level);
+              const cappedAt = "low";
+              if (level && level !== cappedAt) {
+                status = 400;
+                res.writeHead(400, { "content-type": "application/json" });
+                res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "Invalid effort level: accounts on this plan support at most low." } }));
+                return;
+              }
+              status = 200;
+              res.writeHead(200, { "content-type": "application/json" });
+              res.end(JSON.stringify({ id: "msg_ok", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], model: "claude-sonnet-5-5", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }));
+            });
+          });
+          capped.listen(0, "127.0.0.1");
+          await new Promise<void>((r) => capped.once("listening", () => r()));
+          const capBase = `http://127.0.0.1:${(capped.address() as { port: number }).port}`;
+          const capPost = (): RequestInit => ({
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: "claude-sonnet-5-5", messages: [] }),
+          });
+
+          const reports: any[] = [];
+          await runInContext({ cwd: process.cwd(), env: {}, todos: [], report: (r) => reports.push(r) }, async () => {
+            const res = await f(`${capBase}/v1/messages`, capPost());
+            check(res.status === 200, `the caller sees the stepped-down success (got ${res.status})`);
+          });
+          check(JSON.stringify(seen) === JSON.stringify(["high", "medium", "low"]), `attempt ladder: high → medium → low ok (got ${JSON.stringify(seen)})`);
+          check(effortCap("claude-sonnet-5-5") === "low", `the learned cap is low (got ${effortCap("claude-sonnet-5-5")})`);
+          check(!effortRejectedOnce("claude-sonnet-5-5"), "the cap path does NOT disable effort");
+
+          // a follow-up request clamps straight to the cap — no probe repaid
+          seen.length = 0;
+          await runInContext({ cwd: process.cwd(), env: {}, todos: [] }, async () => {
+            const res = await f(`${capBase}/v1/messages`, capPost());
+            check(res.status === 200, "the follow-up request succeeds");
+          });
+          check(JSON.stringify(seen) === JSON.stringify(["low"]), `follow-up sends the capped level directly (got ${JSON.stringify(seen)})`);
+
+          // a GENERIC effort refusal (parameter not supported) still takes the old off-path
+          resetEffortRejections();
+          seen.length = 0;
+          const noEffort = http.createServer((_req, res) => {
+            seen.push("hit");
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "output_config.effort: Extra inputs are not permitted" } }));
+          });
+          noEffort.listen(0, "127.0.0.1");
+          await new Promise<void>((r) => noEffort.once("listening", () => r()));
+          const noEffortBase = `http://127.0.0.1:${(noEffort.address() as { port: number }).port}`;
+          await runInContext({ cwd: process.cwd(), env: {}, todos: [] }, async () => {
+            const res = await f(`${noEffortBase}/v1/messages`, capPost());
+            check(res.status === 400, "the off-path cannot rescue a body the caller owns — the 400 passes through");
+          });
+          check(effortRejectedOnce("claude-sonnet-5-5"), "a generic effort refusal still disables effort for the model");
+          check(seen.length === 2, `exactly one retry was paid (got ${seen.length})`);
+          noEffort.close();
+          capped.close();
+        }
+
         // 4) import from a Claude Code credentials file (no network)
         const credFile = path.join(
           mkTmp("claude-import-test-"),
@@ -519,7 +598,7 @@ function main(): Promise<void> {
         }
 
         server.close();
-        console.log("ALL TESTS PASSED ✓ (exchange, refresh, header injection, retry visibility, import, Keychain fallback, refresh-token recovery, stale-refresh race, keep-alive margin)");
+        console.log("ALL TESTS PASSED ✓ (exchange, refresh, header injection, retry visibility, effort caps, import, Keychain fallback, refresh-token recovery, stale-refresh race, keep-alive margin)");
         resolve();
       } catch (e) {
         server.close();

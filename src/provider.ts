@@ -26,10 +26,14 @@ import type { ClaudeOAuth } from "./oauth.js";
 import { CLAUDE_CODE_UA, PROTOCOL } from "./oauth.js";
 import { applyCacheBreakpoints, defaultCacheMode, type CacheMode } from "./cache.js";
 import {
+  EFFORTS,
   applyEffortToBody,
   effectiveEffort,
   effortRejectedOnce,
+  lowerEffort,
   markEffortRejected,
+  noteEffortCap,
+  resolveEffort,
 } from "./effort.js";
 
 import { currentContext } from "./context.js";
@@ -506,12 +510,20 @@ export function oauthFetch(oauth: ClaudeOAuth): typeof globalThis.fetch {
         res = await doFetch();
       }
     }
-    // The API refused the effort parameter (a model that does not accept it —
-    // e.g. one newer than effort.ts's table): retry once without it and stop
-    // sending it for THAT model, so other models keep their effort. The
-    // retried request succeeded whenever you can read this — informational.
+    // The API refused the effort parameter. Two shapes (both retried within
+    // this one caller-visible request, so the caller only ever sees success):
+    //  - "Invalid effort level" (an org-admin CAPS a model's effort, revealed
+    //    by CC 2.1.314 — findings.md §21): the parameter itself is fine, the
+    //    LEVEL is above the account ceiling → step down one level per retry,
+    //    learning the working level as a per-model cap (effort.ts's
+    //    effectiveEffort then clamps every later request directly). Bounded
+    //    by the 5-level ladder; if even the bottom level is refused, fall
+    //    through to the off-path below.
+    //  - anything else (e.g. "Extra inputs are not permitted" — a model that
+    //    does not accept the parameter at all): retry once WITHOUT it and
+    //    stop sending it for THAT model, so other models keep their effort.
     if (res.status === 400 && !effortRejectedOnce()) {
-      const detail = await res.clone().text().catch(() => "");
+      let detail = await res.clone().text().catch(() => "");
       if (/effort/i.test(detail)) {
         let model = "";
         try {
@@ -520,13 +532,29 @@ export function oauthFetch(oauth: ClaudeOAuth): typeof globalThis.fetch {
         } catch {
           /* keep "" — the global fallback below */
         }
-        markEffortRejected(model || undefined);
-        // informational only — the retry below is what the caller sees, and
-        // the learned rejection is remembered across restarts (effort.ts)
-        console.warn(
-          `[effort] ${model || "this backend"} does not accept the effort parameter — retried without it; effort is off for ${model || "all models"} (remembered 7d)`,
-        );
-        res = await doFetch();
+        if (/invalid effort level/i.test(detail) && model) {
+          let sent = resolveEffort(effectiveEffort(model), model).effort; // what attempt 1 carried
+          let guard = 0;
+          while (res.status === 400 && sent && guard++ < EFFORTS.length) {
+            const lower = lowerEffort(sent);
+            if (!lower) break; // even the bottom level is capped
+            noteEffortCap(model, lower);
+            console.warn(`[effort] ${model}: level ${sent} rejected (account cap) — stepping down to ${lower} (remembered 7d)`);
+            res = await doFetch(); // withClaudeCodeSystem re-applies effort from effectiveEffort → now the cap
+            sent = lower;
+            if (res.status === 400) detail = await res.clone().text().catch(() => "");
+            if (!/invalid effort level/i.test(detail)) break;
+          }
+        }
+        if (res.status === 400 && /effort/i.test(detail)) {
+          markEffortRejected(model || undefined);
+          // informational only — the retry below is what the caller sees, and
+          // the learned rejection is remembered across restarts (effort.ts)
+          console.warn(
+            `[effort] ${model || "this backend"} does not accept the effort parameter — retried without it; effort is off for ${model || "all models"} (remembered 7d)`,
+          );
+          res = await doFetch();
+        }
       }
     }
     // Same self-healing for the captured request-shape fields (thinking /

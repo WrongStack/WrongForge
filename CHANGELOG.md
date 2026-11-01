@@ -33,6 +33,15 @@ package.json and the git tags that drive the release workflow.
   (default 2, the SDK default; clamped 0–10 — every retry re-sends the whole
   prompt). Both the SDK's behavior and the retry-visibility messages read the
   same budget.
+- **Effort-cap self-heal now steps down instead of switching off (F2101,
+  mirrors Claude Code 2.1.314).** When an organization's plan caps a model's
+  effort, the API answers `Invalid effort level`; WrongForge now walks the
+  level ladder down within the same request (`high → medium → low`), learns
+  the working level as a per-model cap remembered for 7 days, and clamps
+  every later request straight to it — effort keeps working under a partial
+  cap. A generic effort refusal (the parameter not supported at all) still
+  disables effort for that model exactly as before. Found via the 2.1.316
+  carve (findings.md §21).
 - **The dashboard's task rail shows why a queued task is waiting** — its
   queue position and `waiting_for` reason, folded client-side from the
   `task.queued` / `task.queue_update` events.

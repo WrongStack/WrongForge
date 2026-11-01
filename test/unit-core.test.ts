@@ -31,11 +31,14 @@ import {
   clampEffort,
   defaultEffort,
   effectiveEffort,
+  effortCap,
   effortRejectedOnce,
   effortSupport,
   initEffortPersistence,
   isEffortSetting,
+  lowerEffort,
   markEffortRejected,
+  noteEffortCap,
   resetEffortRejections,
   resolveEffort,
   sessionEffort,
@@ -46,6 +49,7 @@ import { dynamicTool, runTool, tool } from "../src/tool.js";
 import { configHelp, configFilePath, loadOAuthConfig } from "../src/config.js";
 import { dataDir } from "../src/paths.js";
 import { renderBanner, printBanner } from "../src/banner.js";
+import { runInContext } from "../src/context.js";
 import { toApiInputSchema } from "../src/tools/util.js";
 import { startLiveView } from "../src/liveview.js";
 import { buildTaskPreamble, buildTaskSystemPrompt, loadPromptFiles, promptDir } from "../src/prompt.js";
@@ -571,6 +575,22 @@ async function main(): Promise<void> {
     setSessionEffort(null);
     assert(sessionEffort() === null, "session effort cleared");
 
+    // learned effort CAPS (F2101, findings.md §21): an org-admin cap answers
+    // "Invalid effort level" — the parameter is fine, the level is too high;
+    // the learned ceiling clamps future requests instead of disabling effort
+    resetEffortRejections();
+    assert(lowerEffort("medium") === "low" && lowerEffort("low") === null, "lowerEffort walks the ladder and stops at the bottom");
+    noteEffortCap("claude-sonnet-5-5", "medium");
+    assert(effortCap("claude-sonnet-5-5") === "medium" && effortCap("claude-opus-5-5") === null, "the cap is per model");
+    assert(effectiveEffort("claude-sonnet-5-5") === "medium", "a request above the cap clamps down to it");
+    assert(effectiveEffort("claude-sonnet-5-5", { WRONGFORGE_EFFORT: "xhigh" }) === "medium", "any setting above the cap clamps");
+    runInContext({ cwd: process.cwd(), env: {}, todos: [], effort: "high" }, () => {
+      assert(effectiveEffort("claude-sonnet-5-5") === "medium", "the cap also clamps a task-level effort override");
+    });
+    assert(effectiveEffort("claude-sonnet-5-5", { WRONGFORGE_EFFORT: "low" }) === "low", "a setting below the cap passes through");
+    resetEffortRejections();
+    assert(effortCap("claude-sonnet-5-5") === null && effectiveEffort("claude-sonnet-5-5") === "high", "reset forgets learned caps");
+
     // runtime learning: a model the API refused effort for opts out, others keep it
     resetEffortRejections();
     markEffortRejected("claude-sonnet-5-5");
@@ -602,6 +622,15 @@ async function main(): Promise<void> {
       fs.writeFileSync(file, JSON.stringify({ version: 1, rejected: { "claude-opus-5-5": Date.now() - 8 * 24 * 3600 * 1000 } }));
       initEffortPersistence(file);
       assert(!effortRejectedOnce("claude-opus-5-5"), "rejections expire after a week");
+      // caps persist the same way (and an old version-1 file without caps loads fine)
+      noteEffortCap("claude-sonnet-5-5", "medium");
+      assert(JSON.parse(fs.readFileSync(file, "utf8")).caps["claude-sonnet-5-5"] === "medium", "a learned cap is written to disk");
+      resetEffortRejections();
+      initEffortPersistence(file);
+      assert(effectiveEffort("claude-sonnet-5-5") === "medium", "a restart remembers the learned cap");
+      fs.writeFileSync(file, JSON.stringify({ version: 1, rejected: {} }));
+      initEffortPersistence(file);
+      assert(effortCap("claude-sonnet-5-5") === null, "a version-1 file without caps loads fine");
       resetEffortRejections();
     }
 

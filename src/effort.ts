@@ -154,6 +154,39 @@ export function sessionEffort(): EffortSetting | null {
 let effortRejectedAll = false;
 const rejectedModels = new Set<string>();
 
+// ------------------------------------------------------- learned effort caps
+// Claude Code 2.1.314's changelog reveals a second effort-refusal shape: an
+// organization admin can CAP a model's effort, and the backend answers
+// "Invalid effort level" — the parameter itself is fine, the level is above
+// the account's ceiling. CC's own fix steps the effort DOWN and retries
+// instead of dropping the field; caps learn the working level per model the
+// same way (and persist like rejections), so future requests clamp directly.
+
+/** The next level strictly below `level`; null when already at the bottom. */
+export function lowerEffort(level: Effort): Effort | null {
+  const i = EFFORTS.indexOf(level);
+  return i > 0 ? EFFORTS[i - 1]! : null;
+}
+
+const cappedModels = new Map<string, Effort>();
+
+/** The learned ceiling for a model, or null when none was learned. */
+export function effortCap(model?: string): Effort | null {
+  if (!model) return null;
+  return cappedModels.get(model) ?? null;
+}
+
+/**
+ * Records that `model`'s account accepts at most `level` (as learned from an
+ * "Invalid effort level" refusal). `effectiveEffort` then clamps every
+ * request for that model down to the cap. Remembered across restarts
+ * (7 days) when initEffortPersistence has wired a file.
+ */
+export function noteEffortCap(model: string, level: Effort): void {
+  cappedModels.set(model, level);
+  persistRejections();
+}
+
 // ------------------------------------------------------- learned rejections
 // What the API refuses is remembered on disk too, so a serve restart does not
 // re-pay the probe (one failed request + retry) for every already-known model.
@@ -175,14 +208,21 @@ export function initEffortPersistence(file?: string): void {
   rejectionFile = file ?? null;
   effortRejectedAll = false;
   rejectedModels.clear();
+  cappedModels.clear();
   if (!rejectionFile) return;
   try {
-    const doc = JSON.parse(fs.readFileSync(rejectionFile, "utf8")) as { rejected?: Record<string, unknown> };
+    const doc = JSON.parse(fs.readFileSync(rejectionFile, "utf8")) as {
+      rejected?: Record<string, unknown>;
+      caps?: Record<string, unknown>;
+    };
     const now = Date.now();
     for (const [model, ts] of Object.entries(doc.rejected ?? {})) {
       if (typeof ts !== "number" || now - ts > REJECTION_TTL_MS) continue;
       if (model === GLOBAL_KEY) effortRejectedAll = true;
       else rejectedModels.add(model);
+    }
+    for (const [model, level] of Object.entries(doc.caps ?? {})) {
+      if (isEffort(level)) cappedModels.set(model, level);
     }
   } catch {
     /* absent or unreadable — start empty */
@@ -194,9 +234,11 @@ function persistRejections(): void {
   const rejected: Record<string, number> = {};
   for (const m of rejectedModels) rejected[m] = Date.now();
   if (effortRejectedAll) rejected[GLOBAL_KEY] = Date.now();
+  const caps: Record<string, string> = {};
+  for (const [m, lvl] of cappedModels) caps[m] = lvl;
   try {
     fs.mkdirSync(path.dirname(rejectionFile), { recursive: true });
-    fs.writeFileSync(rejectionFile, `${JSON.stringify({ version: 1, rejected }, null, 2)}\n`);
+    fs.writeFileSync(rejectionFile, `${JSON.stringify({ version: 2, rejected, caps }, null, 2)}\n`);
   } catch {
     /* read-only data dir — stay memory-only */
   }
@@ -219,18 +261,24 @@ export function effortRejectedOnce(model?: string): boolean {
   return effortRejectedAll || (model !== undefined && rejectedModels.has(model));
 }
 
-/** Test isolation: forget the learned rejections. */
+/** Test isolation: forget the learned rejections and caps. */
 export function resetEffortRejections(): void {
   effortRejectedAll = false;
   rejectedModels.clear();
+  cappedModels.clear();
 }
 
 /**
  * The effort setting that applies to a request being built right now:
  * task override (context) > REPL /effort override > env default;
- * "off" for models the API has already refused the parameter for.
+ * "off" for models the API has already refused the parameter for; a level
+ * clamped down to the learned account cap when the model has one (an
+ * org-admin effort cap — "Invalid effort level", see noteEffortCap).
  */
 export function effectiveEffort(model: string, env: NodeJS.ProcessEnv = process.env): EffortSetting {
   if (effortRejectedOnce(model)) return "off";
-  return currentContext()?.effort ?? sessionEffort() ?? defaultEffort(env);
+  const setting = currentContext()?.effort ?? sessionEffort() ?? defaultEffort(env);
+  const cap = cappedModels.get(model);
+  if (setting !== "off" && cap && RANK[setting] > RANK[cap]) return cap;
+  return setting;
 }
