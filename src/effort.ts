@@ -123,12 +123,23 @@ export function resolveEffort(setting: EffortSetting, model: string): ResolvedEf
  * a top-level field (a top-level `effort` is rejected with "Extra inputs are
  * not permitted"), and the effort-2025-11-24 beta header travels alongside
  * (provider.ts). The provider-layer counterpart of applyCacheBreakpoints.
- * A value already in the body (a proxied client's own choice) is returned
- * untouched — the client's intent always wins over the server default.
+ * A value already in the body (a proxied client's own choice) is honoured —
+ * the client's intent wins over the server default — but a learned account
+ * cap still clamps it (proactively, once the cap is known: sending the
+ * capped level can only come back as "Invalid effort level").
  * Returns the value that was set, or null when the field stays absent.
  */
 export function applyEffortToBody(body: any, setting: EffortSetting): Effort | null {
-  if (typeof body?.output_config?.effort === "string") return body.output_config.effort as Effort;
+  const existing = body?.output_config?.effort;
+  if (typeof existing === "string" && isEffort(existing)) {
+    const cap = effortCap(String(body?.model ?? ""));
+    if (cap && RANK[existing] > RANK[cap]) {
+      body.output_config = { ...body.output_config, effort: cap };
+      console.warn(`[effort] ${String(body?.model ?? "this model")}: level ${existing} is above the learned account cap — sending ${cap}`);
+      return cap;
+    }
+    return existing as Effort;
+  }
   const resolved = resolveEffort(setting, String(body?.model ?? ""));
   if (!resolved.effort) return null;
   body.output_config = { ...(body.output_config ?? {}), effort: resolved.effort };

@@ -41,7 +41,11 @@ package.json and the git tags that drive the release workflow.
   every later request straight to it — effort keeps working under a partial
   cap. A generic effort refusal (the parameter not supported at all) still
   disables effort for that model exactly as before. Found via the 2.1.316
-  carve (findings.md §21).
+  carve (findings.md §21). A caller's own `output_config.effort` (a proxied
+  client's explicit choice) is honoured but clamped the same way once the
+  cap is known — its walk down rewrites the caller's body per step, and a
+  learned cap clamps future caller-owned levels proactively, so no request
+  is spent on a guaranteed 400 (F2102).
 - **The dashboard's task rail shows why a queued task is waiting** — its
   queue position and `waiting_for` reason, folded client-side from the
   `task.queued` / `task.queue_update` events.

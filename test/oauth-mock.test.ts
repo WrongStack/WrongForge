@@ -358,6 +358,54 @@ function main(): Promise<void> {
           check(effortRejectedOnce("claude-sonnet-5-5"), "a generic effort refusal still disables effort for the model");
           check(seen.length === 2, `exactly one retry was paid (got ${seen.length})`);
           noEffort.close();
+
+          // a CALLER-OWNED body level (a proxied client's own output_config.effort)
+          // walks the ladder by rewriting its body, and once the cap is learned a
+          // client level above it is clamped proactively (no guaranteed-400 probe)
+          resetEffortRejections();
+          seen.length = 0;
+          const capPostOwned = (level: string): RequestInit => ({
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: "claude-sonnet-5-5", messages: [], output_config: { effort: level } }),
+          });
+          capped.close();
+          const capped2 = http.createServer((req, res) => {
+            const chunks: Buffer[] = [];
+            req.on("data", (c: Buffer) => chunks.push(c));
+            req.on("end", () => {
+              let level: string | undefined;
+              try {
+                level = JSON.parse(Buffer.concat(chunks).toString("utf8"))?.output_config?.effort;
+              } catch {
+                /* unparseable */
+              }
+              seen.push(level);
+              if (level && level !== "medium") {
+                res.writeHead(400, { "content-type": "application/json" });
+                res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "Invalid effort level: accounts on this plan support at most medium." } }));
+                return;
+              }
+              res.writeHead(200, { "content-type": "application/json" });
+              res.end(JSON.stringify({ id: "msg_ok", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], model: "claude-sonnet-5-5", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }));
+            });
+          });
+          capped2.listen(0, "127.0.0.1");
+          await new Promise<void>((r) => capped2.once("listening", () => r()));
+          const cap2Base = `http://127.0.0.1:${(capped2.address() as { port: number }).port}`;
+          await runInContext({ cwd: process.cwd(), env: {}, todos: [] }, async () => {
+            const res = await f(`${cap2Base}/v1/messages`, capPostOwned("max"));
+            check(res.status === 200, `a caller-owned max walks down to the cap (got ${res.status})`);
+          });
+          check(JSON.stringify(seen) === JSON.stringify(["max", "xhigh", "high", "medium"]), `owned-body ladder walks the body itself (got ${JSON.stringify(seen)})`);
+          check(effortCap("claude-sonnet-5-5") === "medium", `the owned-body walk learns the cap (got ${effortCap("claude-sonnet-5-5")})`);
+          seen.length = 0;
+          await runInContext({ cwd: process.cwd(), env: {}, todos: [] }, async () => {
+            const res = await f(`${cap2Base}/v1/messages`, capPostOwned("max"));
+            check(res.status === 200, "the second owned request succeeds");
+          });
+          check(JSON.stringify(seen) === JSON.stringify(["medium"]), `a learned cap clamps a client-owned level proactively (got ${JSON.stringify(seen)})`);
+          capped2.close();
           capped.close();
         }
 

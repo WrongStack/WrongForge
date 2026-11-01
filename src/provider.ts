@@ -30,10 +30,12 @@ import {
   applyEffortToBody,
   effectiveEffort,
   effortRejectedOnce,
+  isEffort,
   lowerEffort,
   markEffortRejected,
   noteEffortCap,
   resolveEffort,
+  type Effort,
 } from "./effort.js";
 
 import { currentContext } from "./context.js";
@@ -526,20 +528,29 @@ export function oauthFetch(oauth: ClaudeOAuth): typeof globalThis.fetch {
       let detail = await res.clone().text().catch(() => "");
       if (/effort/i.test(detail)) {
         let model = "";
+        let clientLevel: Effort | null = null; // a level the CALLER put in the body itself
         try {
-          const body = typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: unknown }) : null;
+          const body = typeof init?.body === "string" ? (JSON.parse(init.body) as { model?: unknown; output_config?: { effort?: unknown } | undefined }) : null;
           if (typeof body?.model === "string" && body.model) model = body.model;
+          if (isEffort(body?.output_config?.effort)) clientLevel = body.output_config.effort as Effort;
         } catch {
           /* keep "" — the global fallback below */
         }
         if (/invalid effort level/i.test(detail) && model) {
-          let sent = resolveEffort(effectiveEffort(model), model).effort; // what attempt 1 carried
+          let sent = clientLevel ?? resolveEffort(effectiveEffort(model), model).effort;
           let guard = 0;
           while (res.status === 400 && sent && guard++ < EFFORTS.length) {
             const lower = lowerEffort(sent);
             if (!lower) break; // even the bottom level is capped
             noteEffortCap(model, lower);
             console.warn(`[effort] ${model}: level ${sent} rejected (account cap) — stepping down to ${lower} (remembered 7d)`);
+            if (clientLevel && typeof init?.body === "string") {
+              // a caller-owned body value wins applyEffortToBody's re-apply,
+              // so the step-down has to rewrite the body itself
+              const b = JSON.parse(init.body) as { output_config?: { effort?: unknown } };
+              b.output_config = { ...(b.output_config ?? {}), effort: lower };
+              init = { ...init, body: JSON.stringify(b) };
+            }
             res = await doFetch(); // withClaudeCodeSystem re-applies effort from effectiveEffort → now the cap
             sent = lower;
             if (res.status === 400) detail = await res.clone().text().catch(() => "");
