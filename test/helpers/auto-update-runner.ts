@@ -49,15 +49,19 @@ const api = async (method: string, p: string, body?: unknown): Promise<{ status:
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
+// Submit BEFORE waiting for the startup check: with a task already queued,
+// the poller must stay silent no matter when the check lands. The old order
+// (wait for the check, then submit) left an idle window that a heavily
+// loaded machine could tick into and run prepareUpdate() in (F2105).
+const sub = await api("POST", "/v1/tasks", { workdir: process.env.WF_ENTRY_WORKDIR ?? ".", prompt: "[[delay 1500]] [[say done]]" });
+if (sub.status !== 202) throw new Error(`task submit failed: ${sub.status} ${JSON.stringify(sub.body)}`);
+const taskId = sub.body.task.id;
+
 // wait for the startup check (announceUpdate) to populate lastUpdateCheck()
 const t0 = Date.now();
 while (!lastUpdateCheck() && Date.now() - t0 < 5000) await sleep(25);
 if (!lastUpdateCheck()) throw new Error("startup update check never completed");
-prepareCalls = 0; // that was the startup check, not the idle poller
-
-const sub = await api("POST", "/v1/tasks", { workdir: process.env.WF_ENTRY_WORKDIR ?? ".", prompt: "[[delay 600]] [[say done]]" });
-if (sub.status !== 202) throw new Error(`task submit failed: ${sub.status} ${JSON.stringify(sub.body)}`);
-const taskId = sub.body.task.id;
+prepareCalls = 0; // that was the startup check, not the idle poller — and the task has been in the queue all along
 
 await sleep(300); // several WRONGFORGE_AUTO_UPDATE_POLL_MS ticks while the task runs
 if (prepareCalls !== 0) throw new Error(`prepareUpdate() ran while a task was in flight (${prepareCalls} calls)`);
