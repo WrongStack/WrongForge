@@ -45,7 +45,9 @@ package.json and the git tags that drive the release workflow.
   client's explicit choice) is honoured but clamped the same way once the
   cap is known — its walk down rewrites the caller's body per step, and a
   learned cap clamps future caller-owned levels proactively, so no request
-  is spent on a guaranteed 400 (F2102).
+  is spent on a guaranteed 400 (F2102). Learned caps expire after a week
+  like rejections do, so an organization raising its cap is picked up
+  again (F2103).
 - **The dashboard's task rail shows why a queued task is waiting** — its
   queue position and `waiting_for` reason, folded client-side from the
   `task.queued` / `task.queue_update` events.

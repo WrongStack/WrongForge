@@ -233,7 +233,11 @@ export function initEffortPersistence(file?: string): void {
       else rejectedModels.add(model);
     }
     for (const [model, level] of Object.entries(doc.caps ?? {})) {
-      if (isEffort(level)) cappedModels.set(model, level);
+      // caps carry a timestamp and expire like rejections: an org that RAISES
+      // its effort cap must be picked up again, not clamped forever
+      if (Array.isArray(level) && isEffort(level[0]) && typeof level[1] === "number" && now - level[1] <= REJECTION_TTL_MS) {
+        cappedModels.set(model, level[0]);
+      }
     }
   } catch {
     /* absent or unreadable — start empty */
@@ -245,8 +249,8 @@ function persistRejections(): void {
   const rejected: Record<string, number> = {};
   for (const m of rejectedModels) rejected[m] = Date.now();
   if (effortRejectedAll) rejected[GLOBAL_KEY] = Date.now();
-  const caps: Record<string, string> = {};
-  for (const [m, lvl] of cappedModels) caps[m] = lvl;
+  const caps: Record<string, [string, number]> = {};
+  for (const [m, lvl] of cappedModels) caps[m] = [lvl, Date.now()];
   try {
     fs.mkdirSync(path.dirname(rejectionFile), { recursive: true });
     fs.writeFileSync(rejectionFile, `${JSON.stringify({ version: 2, rejected, caps }, null, 2)}\n`);

@@ -624,10 +624,14 @@ async function main(): Promise<void> {
       assert(!effortRejectedOnce("claude-opus-5-5"), "rejections expire after a week");
       // caps persist the same way (and an old version-1 file without caps loads fine)
       noteEffortCap("claude-sonnet-5-5", "medium");
-      assert(JSON.parse(fs.readFileSync(file, "utf8")).caps["claude-sonnet-5-5"] === "medium", "a learned cap is written to disk");
+      assert(Array.isArray(JSON.parse(fs.readFileSync(file, "utf8")).caps["claude-sonnet-5-5"]), "a learned cap is written to disk (with a timestamp)");
       resetEffortRejections();
       initEffortPersistence(file);
       assert(effectiveEffort("claude-sonnet-5-5") === "medium", "a restart remembers the learned cap");
+      // an expired cap is dropped too — an org that RAISES its cap is picked up
+      fs.writeFileSync(file, JSON.stringify({ version: 2, rejected: {}, caps: { "claude-sonnet-5-5": ["medium", Date.now() - 8 * 24 * 3600 * 1000] } }));
+      initEffortPersistence(file);
+      assert(effortCap("claude-sonnet-5-5") === null, "caps expire after a week");
       fs.writeFileSync(file, JSON.stringify({ version: 1, rejected: {} }));
       initEffortPersistence(file);
       assert(effortCap("claude-sonnet-5-5") === null, "a version-1 file without caps loads fine");
