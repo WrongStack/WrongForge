@@ -4,6 +4,24 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [0.4.18] — 2026-11-04
+
+### Security
+- **Dependency lockfile refresh.** `npm audit` surfaced 6 vulnerabilities
+  that had accumulated since mid-October, all transitive through the MCP
+  SDK's own dependencies: `body-parser` (high — denial-of-service via
+  trailing bytes after a compressed request body, GHSA-27r3-jxmh-p828) and
+  four `fast-uri` moderates (URI scheme spoofing, path-equivalence and host
+  confusion). Both were bumped within semver (`body-parser` 2.4.0,
+  `fast-uri` 3.1.9) together with the MCP SDK's in-range patch (1.32.2).
+  The vulnerable DoS path is not reachable in WrongForge's own surfaces
+  (the MCP registry only acts as a client; the SDK's express HTTP-server
+  transport never runs) but the code is bundled in the compiled binaries,
+  so the refreshed lockfile ships with this release. Remaining `npm audit`
+  moderates live only in the dev-only `c8` coverage toolchain (never
+  shipped; its fixed versions require a breaking major) and are tracked
+  for the next tooling pass.
+
 ## [0.4.17] — 2026-11-01
 
 ### Added
