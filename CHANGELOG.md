@@ -4,7 +4,7 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
-## [Unreleased]
+## [0.4.19] — 2026-11-06
 
 ### Added
 - **WrongForge as an MCP server (`wrongforge mcp-server`, F2301).** A stdio
