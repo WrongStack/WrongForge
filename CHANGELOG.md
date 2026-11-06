@@ -7,6 +7,17 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Added
+- **WrongForge as an MCP server (`wrongforge mcp-server`, F2301).** A stdio
+  MCP bridge that exposes the task API as tools — `submit_task` (with
+  `wait: true` to block until the agent finishes and return the result),
+  `get_task`, `wait_task`, `cancel_task`, `list_tasks`, `task_events`,
+  `list_sessions` and `usage_summary`. Any MCP client (Claude Code, Claude
+  Desktop, …) can now drive WrongForge in natural language via
+  `claude mcp add wrongforge -- wrongforge mcp-server`. The bridge proxies
+  every call to a running server over HTTP (`WRONGFORGE_URL` +
+  `WRONGFORGE_API_KEY`, default the saved `<data dir>/api-key`); the key it
+  holds scopes its work, so a named client key puts Claude's submissions in
+  that client's queue-cap and fair-share regime like any other orchestrator.
 - **`GET /v1/usage/summary` — aggregated task usage (`F2202`).** Token
   consumption over `?days=` (default 7, up to 365) as `totals` plus
   `by_day` / `by_client` / `by_model` buckets: task counts by status,

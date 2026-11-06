@@ -80,6 +80,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     await startEnvServer();
     return;
   }
+  if (cmd === "mcp-server") {
+    // WrongForge as an MCP server over stdio — Claude Code / Claude Desktop
+    // / any MCP client drives the task API in natural language. Keep stdout
+    // strictly protocol-only: nothing in this branch may console.log.
+    const { startMcpServer } = await import("./mcp-server.js");
+    try {
+      await startMcpServer();
+    } catch (e) {
+      console.error(String((e as Error).message));
+      process.exit(1);
+    }
+    return;
+  }
   if (cmd === "version" || cmd === "--version" || cmd === "-v") {
     console.log(`WrongForge ${VERSION} · https://github.com/${UPDATE_REPO}`);
     return;

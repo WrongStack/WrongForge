@@ -350,6 +350,25 @@ npm run mcp -- import ~/.claude.json      # Claude Code / Desktop style { "mcpSe
 Details (all options, secrets, results, failure handling, security):
 **[docs/MCP.md](docs/MCP.md)**.
 
+## WrongForge as an MCP server
+
+The reverse direction: `wrongforge mcp-server` runs a **stdio MCP server**
+that exposes the task API as tools — `submit_task` (with `wait: true` to
+block until the agent finishes and return the result), `get_task`,
+`wait_task`, `cancel_task`, `list_tasks`, `task_events`, `list_sessions` and
+`usage_summary`. Any MCP client can drive WrongForge in natural language:
+
+```bash
+claude mcp add wrongforge -- wrongforge mcp-server
+```
+
+The bridge talks to a RUNNING WrongForge server over HTTP:
+`WRONGFORGE_URL` (default `http://127.0.0.1:8787`) + `WRONGFORGE_API_KEY`
+(default: the saved `<data dir>/api-key`). Whatever key the bridge holds
+scopes its work — hand it a named client key (see TASKS-API.md → "Multiple
+clients") and Claude's submissions land in that client's scope, subject to
+its queue cap and fair share like any other orchestrator.
+
 ## Tool gateway
 
 An orchestrator can lend the agent its own tools over HTTP. A task's `gateway`
@@ -627,6 +646,7 @@ Environment variables (all optional unless noted):
 | `AGENT_API_KEY` | Server Bearer key (≥ 16 chars). Unset → saved/generated key |
 | `AGENT_API_KEYS` | Extra named client keys `name=key,…` (or `<data dir>/api-keys.json`) — one per orchestrator; each client sees only its own tasks/sessions, the single key stays the admin `default` view. See TASKS-API.md → "Multiple clients" |
 | `WRONGFORGE_MAX_QUEUED_PER_CLIENT` | Queue-flood guard: max QUEUED tasks per named client (default 50, 0 = unlimited; over the cap submits get `429 queue_full`; the default key is never capped) |
+| `WRONGFORGE_URL`, `WRONGFORGE_API_KEY` | What `wrongforge mcp-server` bridges to (server base URL, default `http://127.0.0.1:8787`; API key, default the saved `<data dir>/api-key`) |
 | `PORT` / `HOST` | Server listen port (8787) / address (127.0.0.1) |
 | `WRONGFORGE_PROXY` | Anthropic-compatible `/v1/messages` + `/v1/models` proxy surface (`0` disables; on by default) |
 | `WRONGFORGE_PROXY_MAX_BODY` | Proxy request body cap in bytes (32 MB) |
