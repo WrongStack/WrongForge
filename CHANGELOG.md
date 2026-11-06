@@ -7,6 +7,15 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Added
+- **`GET /v1/usage/summary` — aggregated task usage (`F2202`).** Token
+  consumption over `?days=` (default 7, up to 365) as `totals` plus
+  `by_day` / `by_client` / `by_model` buckets: task counts by status,
+  input/output tokens, cache read/write split, `fresh_input_tokens` (the
+  input that was NOT served from the prompt cache) and summed duration.
+  The numbers come from task records (agent usage is already summed across
+  all steps, so multi-step tasks are exact). Named clients are pinned to
+  their own records; the default key sees every client and may narrow with
+  `?client=` / `?model=`.
 - **Queue-flood guard for named client keys (`F2201`).** A client can hold at
   most `WRONGFORGE_MAX_QUEUED_PER_CLIENT` (default 50; 0 = unlimited) QUEUED
   tasks at once — further submits get `429 queue_full` until it cancels some

@@ -494,6 +494,7 @@ old history may no longer apply.
 | `GET /v1/info` | Capabilities and effective settings: `name`, `version`, `protocol` (1), `signed_in`, `default_model`, `models` (ids), `model_details` (per model: `id`, `description`, `effort_levels` — empty when the model has no effort support), `queue` (`queued`, `running`, `max_concurrency`), `workdir` (`default`, `required`, `allowed_roots`, `lock_by_default`), `context`, `cache`, `effort` (`default`, `levels`), `limits` (`max_body_bytes`, `max_steps`, `default_max_steps`), `webhook` (signature scheme, which key), `tools`, `tool_guides`, `mcp` (config file, server count), `dirs` |
 | `GET /v1/tools` | `{ "tools": [{ name, description }] }` — the built-in tools |
 | `GET /v1/usage` | Plan usage of the signed-in subscription (`five_hour`, `weekly`, `extra_usage`), cached 5 min; `?force=1` bypasses the cache; `502 usage_unavailable` if it cannot be read |
+| `GET /v1/usage/summary` | Aggregated task usage over `?days=` (default 7, 1–365): `totals` plus `by_day` (UTC) / `by_client` / `by_model` buckets — tasks by status, `input_tokens` (cache included), `output_tokens`, `cache_read/write_tokens`, `fresh_input_tokens` (input minus cache reads), `duration_ms`. Named clients are pinned to their own records; the default key sees every client and may narrow with `?client=` and `?model=` |
 | `POST /v1/maintenance/run` | Run housekeeping now (log/task compression and retention, session pruning). Live tasks and busy sessions are never touched |
 | `/v1/mcp/…` | MCP server management, see [MCP.md](MCP.md#http-management) |
 

@@ -209,7 +209,46 @@ async function main(): Promise<void> {
     await h.close();
   }
 
-  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap)");
+  // =============================================================== usage summary (scoping + aggregation)
+  {
+    const h = await startHarness({ app: { maxConcurrency: 2 }, clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
+    const apiA = apiAs(h, KEY_A);
+    const apiB = apiAs(h, KEY_B);
+    const d = h.mkdir("usage");
+    const mk = (n: string, usage: number): string => `[[usage ${usage}]] [[say ${n}]]`;
+
+    const ta1 = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: mk("x", 100) })).body.task;
+    const ta2 = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: mk("y", 300) })).body.task;
+    const tb1 = (await apiB("POST", "/v1/tasks", { workdir: d, prompt: mk("z", 500) })).body.task;
+    for (const t of [ta1, ta2, tb1]) await h.waitTask(t.id);
+
+    // named client: pinned to its own records; ?client= is ignored for it
+    const sumA = (await apiA("GET", "/v1/usage/summary")).body;
+    assert(sumA.scope.client === "stackA", "a named caller is pinned to its own client scope");
+    assert(sumA.totals.tasks === 2 && sumA.totals.completed === 2, `A's summary counts only A's tasks (got ${JSON.stringify(sumA.totals)})`);
+    assert(sumA.totals.input_tokens === 400 && sumA.totals.output_tokens === 40, `A's token sums are exact (got ${JSON.stringify(sumA.totals)})`);
+    assert(sumA.totals.fresh_input_tokens === 400, "fresh input = input minus cache reads (none cached here)");
+    assert(Object.keys(sumA.by_client).length === 1 && sumA.by_client.stackA, "A's by_client has exactly one bucket");
+
+    // default key: sees every client, may narrow with ?client=
+    const sumAll = (await h.api("GET", "/v1/usage/summary")).body;
+    assert(sumAll.totals.tasks === 3 && sumAll.totals.input_tokens === 900, `admin totals cover all clients (got ${JSON.stringify(sumAll.totals)})`);
+    assert(sumAll.scope.client === null, "admin scope is unscoped");
+    assert(new Set(Object.keys(sumAll.by_client)).size === 2, "admin by_client has both named clients");
+    assert(sumAll.by_client.stackB.input_tokens === 500, "per-client buckets carry each client's tokens");
+    assert((await h.api("GET", "/v1/usage/summary?client=stackA")).body.totals.tasks === 2, "admin ?client= filter narrows");
+    assert((await h.api("GET", "/v1/usage/summary?client=default")).body.totals.tasks === 0, "?client=default yields the default client's own (empty) set");
+
+    // day bucketing + model filter + days window
+    const today = new Date().toISOString().slice(0, 10);
+    assert(sumAll.by_day.length === 1 && sumAll.by_day[0].date === today, `by_day has today's UTC bucket (got ${JSON.stringify(sumAll.by_day.map((b: any) => b.date))})`);
+    assert((await h.api("GET", `/v1/usage/summary?model=claude-sonnet-5-5`)).body.totals.tasks === 3, "model filter matches every task here");
+    assert((await h.api("GET", "/v1/usage/summary?model=no-such-model")).body.totals.tasks === 0, "unknown model filter yields an empty summary");
+
+    await h.close();
+  }
+
+  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap, usage summary scoping/aggregation)");
   process.exit(0);
 }
 

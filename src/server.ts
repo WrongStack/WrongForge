@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { ClaudeOAuth } from "./oauth.js";
 import { createApp, type App } from "./app.js";
 import { fetchPlanUsage } from "./usage.js";
+import { summarizeUsage } from "./usage-summary.js";
 import { agentTools } from "./tools/index.js";
 import { DEFAULT_MODEL, KNOWN_MODELS } from "./agent.js";
 import { effortSupport } from "./effort.js";
@@ -767,6 +768,17 @@ export function createAgentServer(opts: ServerOptions): http.Server {
         weekly: u.weekly,
         extra_usage: u.extraUsage,
       });
+    }
+
+    // Aggregated task-usage over a UTC day window: totals + by-day /
+    // by-client / by-model buckets. Named clients are pinned to their own
+    // records; the default key sees everything and may narrow with ?client=.
+    if (area === "usage" && parts.length === 3 && parts[2] === "summary" && method === "GET") {
+      const days = intParam(url, "days", 7, 1, 365);
+      const model = url.searchParams.get("model") ?? undefined;
+      const clientFilter = client === "default" ? (url.searchParams.get("client") ?? undefined) : client;
+      const records = manager.listFor(client, { client: clientFilter, limit: Number.MAX_SAFE_INTEGER });
+      return json(res, 200, summarizeUsage(records, { days, client: clientFilter ?? null, model: model ?? null }));
     }
 
     if (area === "tasks") {
