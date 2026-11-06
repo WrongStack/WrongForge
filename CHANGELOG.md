@@ -4,6 +4,18 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Added
+- **Queue-flood guard for named client keys (`F2201`).** A client can hold at
+  most `WRONGFORGE_MAX_QUEUED_PER_CLIENT` (default 50; 0 = unlimited) QUEUED
+  tasks at once — further submits get `429 queue_full` until it cancels some
+  or slots free up, so one runaway orchestrator can no longer fill the shared
+  queue with hundreds of waiting tasks (the starvation family of issue #7,
+  one level earlier). Only QUEUED tasks count (running slots are already
+  bounded by `max_concurrency` + fair share), and the default/admin key is
+  never capped, so single-key setups are unaffected.
+
 ## [0.4.18] — 2026-11-04
 
 ### Security

@@ -182,7 +182,34 @@ async function main(): Promise<void> {
     await h.close();
   }
 
-  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot)");
+  // =============================================================== queue-flood guard (per-client cap)
+  {
+    const h = await startHarness({ app: { maxConcurrency: 1, maxQueuedPerClient: 2 }, clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
+    const apiA = apiAs(h, KEY_A);
+    const apiB = apiAs(h, KEY_B);
+    const d = h.mkdir("flood");
+
+    // A fills the one slot and queues up to its cap of 2
+    const a1 = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[delay 2500]] [[say a1]]" })).body.task;
+    const a2 = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[delay 100]] [[say a2]]" })).body.task;
+    const a3 = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[delay 100]] [[say a3]]" })).body.task;
+    const a4 = await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[say a4]]" });
+    assert(a4.status === 429 && a4.body.error.code === "queue_full", `4th A submit -> 429 queue_full (got ${a4.status} ${JSON.stringify(a4.body)})`);
+    assert(/MAX_QUEUED_PER_CLIENT/.test(a4.body.error.message), "the error names the knob");
+
+    // the cap is per client: B and the default key submit freely while A is capped
+    assert((await apiB("POST", "/v1/tasks", { workdir: d, prompt: "[[say b]]" })).status === 202, "another client is unaffected");
+    assert((await h.api("POST", "/v1/tasks", { workdir: d, prompt: "[[say default]]" })).status === 202, "the default key is never capped");
+
+    // cancel one queued A task -> room for one more
+    await h.api("POST", `/v1/tasks/${a2.id}/cancel`, {});
+    assert((await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[say a5]]" })).status === 202, "after a cancel the client can queue again");
+
+    for (const id of [a1.id, a3.id]) await h.api("POST", `/v1/tasks/${id}/cancel`, {});
+    await h.close();
+  }
+
+  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap)");
   process.exit(0);
 }
 

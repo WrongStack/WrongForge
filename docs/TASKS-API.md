@@ -250,6 +250,11 @@ Submit-time errors (HTTP `400` unless noted), `error.code` in the response body:
   has a startable task queued, so two orchestrators interleave instead of one
   hogging every slot (never applies with `max_concurrency` 1, and never for
   `priority: "low"` tasks, whose reservation is stricter).
+- A named client also cannot **flood the queue**: at most
+  `WRONGFORGE_MAX_QUEUED_PER_CLIENT` (default 50; 0 = unlimited) of its tasks
+  may sit QUEUED at once — further submits get `429 queue_full` until it
+  cancels some or slots free up. The default/admin key is never capped, so
+  single-key setups are unaffected.
 - A queued task's wait is observable without polling: every time its position
   or block reason changes it emits `task.queue_update`, and
   `GET /v1/tasks/:id` reports `queue_position` and `waiting_for` alongside the
@@ -514,6 +519,7 @@ Errors have the shape `{ "error": { "code": "…", "message": "…" } }`.
 | 404 | `not_found`, `task_not_found`, `session_not_found`, `no_such_session`, `mcp_server_not_found`, `mcp_tool_not_found`, `unknown_server` (MCP) |
 | 409 | `task_id_conflict`, `session_exists`, `session_busy`, `server_disabled` (MCP) |
 | 413 | `body_too_large` |
+| 429 | `queue_full` (a named client at its `WRONGFORGE_MAX_QUEUED_PER_CLIENT` queued-task cap; cancel queued tasks or wait for slots) |
 | 500 | `internal_error` |
 | 502 | `usage_unavailable`, `compaction_failed`, MCP connection errors (`mcp_unavailable`, `mcp_error`) |
 | 503 | `not_signed_in`, `shutting_down` |
@@ -532,6 +538,7 @@ Errors have the shape `{ "error": { "code": "…", "message": "…" } }`.
 | `mcp` | 50 names |
 | events page | `limit` ≤ 5000, `wait_ms` ≤ 30 000 |
 | task list page | `limit` ≤ 500 |
+| queued tasks per named client | `WRONGFORGE_MAX_QUEUED_PER_CLIENT` (default 50, 0 = unlimited; the default key is never capped) — over the cap a submit gets `429 queue_full` |
 
 ## Persistence & restarts
 

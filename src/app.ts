@@ -45,6 +45,8 @@ export interface AppOptions {
   logDir?: string;
   defaultModel?: string;
   maxConcurrency?: number;
+  /** Queue-flood guard override for tests (env: WRONGFORGE_MAX_QUEUED_PER_CLIENT, default 50). */
+  maxQueuedPerClient?: number;
   heartbeatMs?: number;
   textFlushMs?: number;
   progressSaveMs?: number;
@@ -135,6 +137,10 @@ export function createApp(o: AppOptions): App {
     allowedRoots,
     defaultWorkdirLock,
     maxConcurrency: o.maxConcurrency ?? Math.max(1, Math.floor(envConcurrency ?? 2)),
+    // Queue-flood guard for named client keys (issue-#7 family): how many
+    // QUEUED tasks one client may hold before further submits get 429
+    // queue_full. 0 = unlimited; the default/admin key is never capped.
+    maxQueuedPerClient: o.maxQueuedPerClient ?? (numEnv(env.WRONGFORGE_MAX_QUEUED_PER_CLIENT) ?? 50),
     heartbeatMs: o.heartbeatMs ?? numEnv(env.WRONGFORGE_HEARTBEAT_MS),
     defaultTimeoutMs: o.defaultTimeoutMs ?? numEnv(env.WRONGFORGE_TASK_TIMEOUT_MS),
     textFlushMs: o.textFlushMs,

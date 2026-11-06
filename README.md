@@ -626,6 +626,7 @@ Environment variables (all optional unless noted):
 | `CLAUDE_CREDENTIALS_FILE` | Path of the Claude Code credentials file `import` reads (default `~/.claude/.credentials.json`) |
 | `AGENT_API_KEY` | Server Bearer key (≥ 16 chars). Unset → saved/generated key |
 | `AGENT_API_KEYS` | Extra named client keys `name=key,…` (or `<data dir>/api-keys.json`) — one per orchestrator; each client sees only its own tasks/sessions, the single key stays the admin `default` view. See TASKS-API.md → "Multiple clients" |
+| `WRONGFORGE_MAX_QUEUED_PER_CLIENT` | Queue-flood guard: max QUEUED tasks per named client (default 50, 0 = unlimited; over the cap submits get `429 queue_full`; the default key is never capped) |
 | `PORT` / `HOST` | Server listen port (8787) / address (127.0.0.1) |
 | `WRONGFORGE_PROXY` | Anthropic-compatible `/v1/messages` + `/v1/models` proxy surface (`0` disables; on by default) |
 | `WRONGFORGE_PROXY_MAX_BODY` | Proxy request body cap in bytes (32 MB) |

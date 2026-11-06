@@ -89,6 +89,12 @@ export interface ManagerOptions {
   /** Default for `workdir_lock` when a task does not say (default false). */
   defaultWorkdirLock?: boolean;
   maxConcurrency?: number; // default 2
+  /**
+   * Queue-flood guard for named client keys: how many QUEUED tasks one
+   * non-default client may hold before further submits get 429 queue_full.
+   * Default 50; 0 = unlimited; the default/admin key is never capped.
+   */
+  maxQueuedPerClient?: number;
   heartbeatMs?: number; // default 15 000
   defaultTimeoutMs?: number; // default 30 min
   maxTimeoutMs?: number; // default 4 h
@@ -159,7 +165,7 @@ function deadline(p: Promise<unknown>, ms: number): Promise<unknown> {
 
 export class TaskManager {
   private readonly o: Required<
-    Pick<ManagerOptions, "maxConcurrency" | "heartbeatMs" | "defaultTimeoutMs" | "maxTimeoutMs" | "textFlushMs" | "progressSaveMs">
+    Pick<ManagerOptions, "maxConcurrency" | "maxQueuedPerClient" | "heartbeatMs" | "defaultTimeoutMs" | "maxTimeoutMs" | "textFlushMs" | "progressSaveMs">
   > &
     ManagerOptions;
   private live = new Map<string, Live>();
@@ -181,6 +187,7 @@ export class TaskManager {
     this.o = {
       ...opts,
       maxConcurrency: opts.maxConcurrency ?? 2,
+      maxQueuedPerClient: opts.maxQueuedPerClient ?? 50,
       heartbeatMs: opts.heartbeatMs ?? 15_000,
       defaultTimeoutMs: opts.defaultTimeoutMs ?? 30 * 60_000,
       maxTimeoutMs: opts.maxTimeoutMs ?? 4 * 3_600_000,
@@ -414,6 +421,21 @@ export class TaskManager {
         if (!known.has(n)) bad("unknown_mcp_server", `\`mcp\`: no MCP server named "${n}" is configured (see GET /v1/mcp/servers)`);
       }
       mcpSelection = [...new Set(req.mcp)];
+    }
+
+    // ---- queue-flood guard (named client keys): a runaway orchestrator must
+    // not be able to fill the shared queue with hundreds of waiting tasks —
+    // the same starvation family as issue #7, one level earlier. Only counts
+    // QUEUED tasks (running slots are bounded by max_concurrency + fair
+    // share); the default/admin key is never capped so operator tooling and
+    // pre-0.4.17 single-key setups keep working unchanged. Checked here,
+    // before the session is created, so a rejection leaves no state behind.
+    const cap = this.o.maxQueuedPerClient;
+    if (client !== "default" && cap > 0) {
+      const queued = this.queue.filter((id) => (this.o.store.get(id)!.client ?? "default") === client).length;
+      if (queued >= cap) {
+        throw new SubmitError(429, "queue_full", `client "${client}" already has ${queued} queued tasks (WRONGFORGE_MAX_QUEUED_PER_CLIENT=${cap}) — cancel some or wait for slots`);
+      }
     }
 
     // ---- session (create when missing). Sessions are owned by their
