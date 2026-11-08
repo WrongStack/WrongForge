@@ -758,6 +758,23 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     if (parts[0] !== "v1") throw new HttpError(404, "not_found", "unknown route");
     const area = parts[1];
 
+    // Rate limit the COSTING surfaces per named client (issue-#7 family):
+    // task submit and the proxy's upstream calls — the requests that burn the
+    // shared subscription. GETs (dashboards, polling) are free, and the
+    // default/admin key is never limited. A rejected request carries
+    // Retry-After so SDK clients back off instead of hammering.
+    if (
+      client !== "default" &&
+      method === "POST" &&
+      (url.pathname === "/v1/tasks" || url.pathname.startsWith("/v1/messages"))
+    ) {
+      const hit = app.rateLimiter.hit(client);
+      if (!hit.allowed) {
+        res.setHeader("Retry-After", String(hit.retryAfterSec));
+        throw new HttpError(429, "rate_limited", `client "${client}" exceeded WRONGFORGE_CLIENT_RATE_LIMIT (${app.rateLimiter.limit}/min) — retry in ~${hit.retryAfterSec}s`);
+      }
+    }
+
     // Plan-usage state (5h session window, weekly limit, extra usage) from the
     // same endpoint Claude Code's /usage reads; cached 5 minutes server-side.
     if (area === "usage" && parts.length === 2 && method === "GET") {

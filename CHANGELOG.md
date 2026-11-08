@@ -4,6 +4,17 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Added
+- **Per-client rate limiting on the costing surfaces (`F2401`).**
+  `WRONGFORGE_CLIENT_RATE_LIMIT` (requests/minute, default 120; 0 = unlimited)
+  applies a sliding-window limit to task submit and the proxy's
+  `/v1/messages*` for named client keys — a runaway orchestrator can no
+  longer burn the shared subscription through either door. GETs are free,
+  the default/admin key is never limited, and refusals carry `429
+  rate_limited` with a `Retry-After` header so SDK clients back off.
+
 ## [0.4.19] — 2026-11-06
 
 ### Added

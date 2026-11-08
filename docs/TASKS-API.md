@@ -255,6 +255,11 @@ Submit-time errors (HTTP `400` unless noted), `error.code` in the response body:
   may sit QUEUED at once — further submits get `429 queue_full` until it
   cancels some or slots free up. The default/admin key is never capped, so
   single-key setups are unaffected.
+- The **costing surfaces are rate limited per named client**:
+  `WRONGFORGE_CLIENT_RATE_LIMIT` requests/minute (default 120; 0 = unlimited)
+  across task submit and the proxy's `/v1/messages*`. GETs are free and the
+  default/admin key is never limited. Over the limit a request gets
+  `429 rate_limited` with a `Retry-After` header.
 - A queued task's wait is observable without polling: every time its position
   or block reason changes it emits `task.queue_update`, and
   `GET /v1/tasks/:id` reports `queue_position` and `waiting_for` alongside the

@@ -14,6 +14,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveClientKeys, DEFAULT_CLIENT, CLIENT_NAME_RE } from "../src/apikey.js";
+import { SlidingWindowLimiter } from "../src/rate-limit.js";
 import { assert, sleep, startHarness, type Harness } from "./helpers/harness.js";
 
 const KEY_A = "wf_test_client_a_key_0123456789";
@@ -34,11 +35,23 @@ function apiAs(h: Harness, key: string) {
     } catch {
       /* not JSON */
     }
-    return { status: res.status, body: parsed };
+    return { status: res.status, body: parsed, headers: res.headers };
   };
 }
 
 async function main(): Promise<void> {
+  // =============================================================== sliding-window limiter (offline)
+  {
+    const lim = new SlidingWindowLimiter(2, 60_000);
+    assert(lim.hit("a", 1000).allowed && lim.hit("a", 2000).allowed, "up to the limit is allowed");
+    const refused = lim.hit("a", 3000);
+    assert(!refused.allowed && refused.retryAfterSec === 58, `over the limit refuses with the exact retry-after (got ${refused.retryAfterSec})`);
+    assert(lim.hit("b", 3000).allowed, "buckets are per key");
+    assert(lim.hit("a", 61_500).allowed, "the window rolls and frees budget");
+    const off = new SlidingWindowLimiter(0);
+    assert(off.hit("a").allowed && off.hit("a", 999).allowed, "limit 0 disables the limiter");
+  }
+
   // =============================================================== key config (offline)
   {
     const k = resolveClientKeys("wf_default_key_0123456789", { AGENT_API_KEYS: `alpha=${KEY_A},beta=${KEY_B}` });
@@ -200,12 +213,45 @@ async function main(): Promise<void> {
     // the cap is per client: B and the default key submit freely while A is capped
     assert((await apiB("POST", "/v1/tasks", { workdir: d, prompt: "[[say b]]" })).status === 202, "another client is unaffected");
     assert((await h.api("POST", "/v1/tasks", { workdir: d, prompt: "[[say default]]" })).status === 202, "the default key is never capped");
-
     // cancel one queued A task -> room for one more
     await h.api("POST", `/v1/tasks/${a2.id}/cancel`, {});
     assert((await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[say a5]]" })).status === 202, "after a cancel the client can queue again");
 
     for (const id of [a1.id, a3.id]) await h.api("POST", `/v1/tasks/${id}/cancel`, {});
+    await h.close();
+  }
+
+  // =============================================================== per-client rate limit (costing surfaces)
+  {
+    const h = await startHarness({ app: { maxConcurrency: 4, clientRateLimit: 3 }, clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
+    const apiA = apiAs(h, KEY_A);
+    const apiB = apiAs(h, KEY_B);
+    const d = h.mkdir("rate");
+
+    const codes: number[] = [];
+    for (let i = 0; i < 4; i++) codes.push((await apiA("POST", "/v1/tasks", { workdir: d, prompt: `[[say a${i}]]` })).status);
+    assert(codes.slice(0, 3).every((s) => s === 202 || s === 200), `the first 3 submits pass (got ${codes.join(",")})`);
+    assert(codes[3] === 429, `the 4th submit is rate limited (got ${codes[3]})`);
+
+    const limited = await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[say a4]]" });
+    assert(limited.status === 429 && limited.body.error.code === "rate_limited", "the 429 body carries rate_limited");
+    const retryAfter = limited.headers.get("retry-after");
+    assert(retryAfter !== null && Number(retryAfter) >= 1, `the 429 carries Retry-After (got ${retryAfter})`);
+
+    assert((await apiB("POST", "/v1/tasks", { workdir: d, prompt: "[[say b]]" })).status === 202, "another client's bucket is untouched");
+    assert((await h.api("POST", "/v1/tasks", { workdir: d, prompt: "[[say default]]" })).status === 202, "the default key is never limited");
+    assert((await apiA("GET", "/v1/tasks?limit=5")).status === 200, "GETs stay free while POSTs are limited");
+
+    await h.close();
+  }
+  {
+    // clientRateLimit 0 disables the limiter
+    const h = await startHarness({ app: { maxConcurrency: 4, clientRateLimit: 0 }, clientKeys: new Map([[KEY_A, "stackA"]]) });
+    const apiA = apiAs(h, KEY_A);
+    const d = h.mkdir("rate0");
+    let allOk = true;
+    for (let i = 0; i < 6; i++) if ((await apiA("POST", "/v1/tasks", { workdir: d, prompt: `[[say f${i}]]` })).status >= 400) allOk = false;
+    assert(allOk, "clientRateLimit 0 never refuses");
     await h.close();
   }
 
@@ -248,7 +294,7 @@ async function main(): Promise<void> {
     await h.close();
   }
 
-  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap, usage summary scoping/aggregation)");
+  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap, sliding-window limiter, rate limit 429 + Retry-After + isolation, usage summary scoping/aggregation)");
   process.exit(0);
 }
 

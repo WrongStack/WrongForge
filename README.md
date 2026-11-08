@@ -646,6 +646,7 @@ Environment variables (all optional unless noted):
 | `AGENT_API_KEY` | Server Bearer key (≥ 16 chars). Unset → saved/generated key |
 | `AGENT_API_KEYS` | Extra named client keys `name=key,…` (or `<data dir>/api-keys.json`) — one per orchestrator; each client sees only its own tasks/sessions, the single key stays the admin `default` view. See TASKS-API.md → "Multiple clients" |
 | `WRONGFORGE_MAX_QUEUED_PER_CLIENT` | Queue-flood guard: max QUEUED tasks per named client (default 50, 0 = unlimited; over the cap submits get `429 queue_full`; the default key is never capped) |
+| `WRONGFORGE_CLIENT_RATE_LIMIT` | Per-client rate limit for the costing surfaces — task submit and proxy `/v1/messages*` — in requests/minute for named clients (default 120, 0 = unlimited; GETs are free; the default key is never limited). Over the limit: `429 rate_limited` with `Retry-After` |
 | `WRONGFORGE_URL`, `WRONGFORGE_API_KEY` | What `wrongforge mcp-server` bridges to (server base URL, default `http://127.0.0.1:8787`; API key, default the saved `<data dir>/api-key`) |
 | `PORT` / `HOST` | Server listen port (8787) / address (127.0.0.1) |
 | `WRONGFORGE_PROXY` | Anthropic-compatible `/v1/messages` + `/v1/models` proxy surface (`0` disables; on by default) |

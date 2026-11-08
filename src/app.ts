@@ -32,6 +32,7 @@ import { TaskStore } from "./tasks/store.js";
 import { TaskManager, type ManagerOptions } from "./tasks/manager.js";
 import { WebhookDispatcher, type WebhookOptions } from "./tasks/webhook.js";
 import { retentionFromEnv, type Retention } from "./maintenance.js";
+import { SlidingWindowLimiter } from "./rate-limit.js";
 import { defaultMcpRegistry, type McpRegistry } from "./mcp/registry.js";
 import { initEffortPersistence } from "./effort.js";
 import type { ContextConfig } from "./compaction.js";
@@ -47,6 +48,8 @@ export interface AppOptions {
   maxConcurrency?: number;
   /** Queue-flood guard override for tests (env: WRONGFORGE_MAX_QUEUED_PER_CLIENT, default 50). */
   maxQueuedPerClient?: number;
+  /** Per-client rate limit override for tests (env: WRONGFORGE_CLIENT_RATE_LIMIT, req/min, default 120). */
+  clientRateLimit?: number;
   heartbeatMs?: number;
   textFlushMs?: number;
   progressSaveMs?: number;
@@ -75,6 +78,8 @@ export interface App {
   defaultWorkdir?: string;
   allowedRoots: string[];
   defaultWorkdirLock: boolean;
+  /** Per-client limiter for the costing surfaces (named clients only). */
+  rateLimiter: SlidingWindowLimiter;
 }
 
 const numEnv = (v: string | undefined): number | undefined => {
@@ -152,9 +157,16 @@ export function createApp(o: AppOptions): App {
   };
   const manager = new TaskManager(managerOpts);
 
+  // Per-client rate limit for the COSTING surfaces (POST /v1/tasks and the
+  // proxy /v1/messages*): requests per minute for named client keys. Default
+  // 120 — generous next to how agents naturally call (seconds per request) —
+  // 0 disables, and the default/admin key is never limited.
+  const clientRateLimit = o.clientRateLimit ?? (numEnv(env.WRONGFORGE_CLIENT_RATE_LIMIT) ?? 120);
+
   return {
     logger, sessions, taskStore, manager, webhook, mcp,
     retention: o.retention ?? retentionFromEnv(),
     defaultModel, dirs, defaultWorkdir, allowedRoots, defaultWorkdirLock,
+    rateLimiter: new SlidingWindowLimiter(Math.max(0, Math.floor(clientRateLimit))),
   };
 }
