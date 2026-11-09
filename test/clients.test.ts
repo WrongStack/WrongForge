@@ -255,6 +255,35 @@ async function main(): Promise<void> {
     await h.close();
   }
 
+  // =============================================================== audit trail (F2402)
+  {
+    const h = await startHarness({ clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
+    const apiA = apiAs(h, KEY_A);
+    const d = h.mkdir("audit");
+
+    // four attributable mutations from stackA
+    const t = (await apiA("POST", "/v1/tasks", { workdir: d, prompt: "[[delay 2000]] [[say audited]]" })).body.task;
+    await apiA("POST", `/v1/tasks/${t.id}/cancel`, { reason: "audit test" });
+    await apiA("POST", "/v1/sessions", { id: "ses_audit_demo" });
+    await apiA("DELETE", "/v1/sessions/ses_audit_demo");
+
+    // admin read: newest first, all attributed to stackA, no prompt text
+    const feed = (await h.api("GET", "/v1/audit?limit=100")).body;
+    assert(feed.entries.length >= 4, `the audit trail has the mutations (got ${feed.entries.length})`);
+    assert(JSON.stringify(feed.entries.slice(0, 4).map((e: any) => e.action)) === JSON.stringify(["session.delete", "session.create", "task.cancel", "task.submit"]), `newest-first order (got ${JSON.stringify(feed.entries.slice(0, 4).map((e: any) => e.action))})`);
+    assert(feed.entries.slice(0, 4).every((e: any) => e.client === "stackA"), "every entry names the acting client");
+    const sub = feed.entries[3]!;
+    assert(sub.target === t.id && sub.detail?.session_id === t.session_id && sub.detail?.model, "the submit entry carries target + session/model detail");
+    assert(!JSON.stringify(feed.entries).includes("[[say audited]]") && !JSON.stringify(feed.entries).includes("audited]]"), "prompts are never written to the audit");
+    const cancel = feed.entries[2]!;
+    assert(cancel.detail?.reason === "audit test", "a cancel entry keeps the reason");
+
+    // named clients cannot read the trail
+    assert((await apiA("GET", "/v1/audit")).status === 403, "named client audit read -> 403");
+
+    await h.close();
+  }
+
   // =============================================================== usage summary (scoping + aggregation)
   {
     const h = await startHarness({ app: { maxConcurrency: 2 }, clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
@@ -294,7 +323,7 @@ async function main(): Promise<void> {
     await h.close();
   }
 
-  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap, sliding-window limiter, rate limit 429 + Retry-After + isolation, usage summary scoping/aggregation)");
+  console.log("CLIENT TESTS PASSED ✓ (key config fail-closed, task stamping, session ownership 403, 404 scoping, no-leak idempotency, list/session scoping, scoped global feed, default-key admin view + backward compat, fair-share last slot, queue-flood cap, sliding-window limiter, rate limit 429 + Retry-After + isolation, usage summary scoping/aggregation, audit trail)");
   process.exit(0);
 }
 

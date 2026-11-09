@@ -449,6 +449,7 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     if (!oauth.signedIn) throw new HttpError(503, "not_signed_in", "WrongForge is not signed in (run `npm run import` or `npm run login`)");
     // the client comes from the API key, never from the body
     const { task, deduplicated } = manager.submit(rest as unknown as SubmitRequest, client);
+    app.audit.record(client, "task.submit", task.id, { session_id: task.session_id, model: task.model, workdir: task.workdir });
     const location = { Location: `/v1/tasks/${task.id}` };
 
     if (stream === true) {
@@ -627,7 +628,9 @@ export function createAgentServer(opts: ServerOptions): http.Server {
         const id = body.id === undefined ? `ses_${crypto.randomBytes(8).toString("hex")}` : body.id;
         if (!SessionStore.isValidId(id)) throw new HttpError(400, "invalid_request", "`id` must match [A-Za-z0-9][A-Za-z0-9._-]{0,127}");
         if (sessions.exists(id)) throw new HttpError(409, "session_exists", `session "${id}" already exists`);
-        return json(res, 201, { session: sessions.create(id, new Date(), client) }, { Location: `/v1/sessions/${id}` }), true;
+        const created = sessions.create(id, new Date(), client);
+        app.audit.record(client, "session.create", id);
+        return json(res, 201, { session: created }, { Location: `/v1/sessions/${id}` }), true;
       }
       return false;
     }
@@ -652,6 +655,7 @@ export function createAgentServer(opts: ServerOptions): http.Server {
         assertVisible();
         if (manager.sessionInUse(id)) throw new HttpError(409, "session_busy", "a task of this session is queued or running");
         sessions.delete(id);
+        app.audit.record(client, "session.delete", id);
         return json(res, 200, { deleted: id }), true;
       }
       return false;
@@ -668,7 +672,9 @@ export function createAgentServer(opts: ServerOptions): http.Server {
       assertVisible();
       const body = await readJson(req);
       try {
-        return json(res, 200, await manager.compactSession(id, typeof body.model === "string" ? body.model : undefined)), true;
+        const result = await manager.compactSession(id, typeof body.model === "string" ? body.model : undefined);
+        app.audit.record(client, "session.compact", id, { messages_before: result.messages_before, messages_after: result.messages_after });
+        return json(res, 200, result), true;
       } catch (e) {
         if (e instanceof SubmitError) throw new HttpError(e.status, e.code, e.message);
         throw new HttpError(502, "compaction_failed", (e as Error).message);
@@ -677,7 +683,7 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     return false;
   }
 
-  async function mcpRoutes(req: http.IncomingMessage, res: http.ServerResponse, url: URL, parts: string[]): Promise<boolean> {
+  async function mcpRoutes(req: http.IncomingMessage, res: http.ServerResponse, url: URL, parts: string[], client: string): Promise<boolean> {
     const method = req.method ?? "GET";
     const mcp = app.mcp;
 
@@ -685,7 +691,9 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     if (parts.length === 3 && parts[2] === "import" && method === "POST") {
       const body = await readJson(req);
       const { overwrite, ...doc } = body;
-      return json(res, 200, mcp.importServers(doc, { overwrite: overwrite === true })), true;
+      const imported = mcp.importServers(doc, { overwrite: overwrite === true });
+      app.audit.record(client, "mcp.import", `${Object.keys(doc.mcpServers ?? doc).length ?? 0} servers`);
+      return json(res, 200, imported), true;
     }
     if (parts[2] !== "servers" || parts.length < 4) return false;
 
@@ -698,12 +706,14 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     if (parts.length === 4 && method === "PUT") {
       const spec = await readJson(req);
       const saved = mcp.addServer(name, spec);
+      app.audit.record(client, "mcp.server_set", name, { existed: saved.existed });
       const body: Record<string, unknown> = { name, existed: saved.existed, server: mcp.status().servers.find((s) => s.name === name) };
       if (flag(url, "test")) body.test = await mcp.test(name);
       return json(res, saved.existed ? 200 : 201, body), true;
     }
     if (parts.length === 4 && method === "DELETE") {
       if (!mcp.removeServer(name)) throw new HttpError(404, "mcp_server_not_found", `no MCP server named "${name}"`);
+      app.audit.record(client, "mcp.server_delete", name);
       return json(res, 200, { removed: name }), true;
     }
     if (parts.length === 5 && sub === "test" && method === "POST") {
@@ -834,11 +844,18 @@ export function createAgentServer(opts: ServerOptions): http.Server {
           const body = await readJson(req);
           const r = await manager.cancel(id, typeof body.reason === "string" ? body.reason : undefined);
           if (!r) throw taskNotFound(id);
+          app.audit.record(client, "task.cancel", id, r.task.cancel_reason ? { reason: r.task.cancel_reason } : undefined);
           return json(res, 200, r);
         }
       }
     } else if (area === "events" && parts.length === 2 && method === "GET") {
       return globalEvents(req, res, url, client);
+    } else if (area === "audit" && parts.length === 2 && method === "GET") {
+      // admin-only: the trail attributes actions across clients, so a named
+      // client key may not read it
+      if (client !== "default") throw new HttpError(403, "audit_forbidden", "the audit trail is admin-only (the default key)");
+      const limit = intParam(url, "limit", 200, 1, 1000);
+      return json(res, 200, { entries: app.audit.tail(limit) });
     } else if (area === "messages" || area === "models") {
       // Anthropic-compatible proxy surface (src/proxy.ts) — same key auth as
       // everything else; returns false for shapes it does not serve
@@ -846,7 +863,7 @@ export function createAgentServer(opts: ServerOptions): http.Server {
     } else if (area === "sessions") {
       if (await sessionRoutes(req, res, url, parts, client)) return;
     } else if (area === "mcp") {
-      if (await mcpRoutes(req, res, url, parts)) return;
+      if (await mcpRoutes(req, res, url, parts, client)) return;
     } else if (area === "info" && parts.length === 2 && method === "GET") {
       return json(res, 200, info());
     } else if (area === "tools" && parts.length === 2 && method === "GET") {

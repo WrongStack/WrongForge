@@ -35,6 +35,7 @@ import { retentionFromEnv, type Retention } from "./maintenance.js";
 import { SlidingWindowLimiter } from "./rate-limit.js";
 import { defaultMcpRegistry, type McpRegistry } from "./mcp/registry.js";
 import { initEffortPersistence } from "./effort.js";
+import { AuditLog } from "./audit.js";
 import type { ContextConfig } from "./compaction.js";
 
 export interface AppOptions {
@@ -73,6 +74,7 @@ export interface App {
   webhook: WebhookDispatcher;
   mcp: McpRegistry;
   retention: Retention;
+  audit: AuditLog;
   defaultModel: string;
   dirs: { home: string; logs: string; tasks: string; sessions: string };
   defaultWorkdir?: string;
@@ -98,6 +100,9 @@ export function createApp(o: AppOptions): App {
   };
   // remember across restarts which models the API refuses `effort` for
   initEffortPersistence(path.join(home, "effort-rejections.json"));
+
+  // append-only audit trail of user-driven mutations (see src/audit.ts)
+  const audit = new AuditLog(path.join(home, "audit.jsonl"));
 
   const level = (["debug", "info", "warn", "error"] as const).includes(env.WRONGFORGE_LOG_LEVEL as LogLevel)
     ? (env.WRONGFORGE_LOG_LEVEL as LogLevel)
@@ -166,6 +171,7 @@ export function createApp(o: AppOptions): App {
   return {
     logger, sessions, taskStore, manager, webhook, mcp,
     retention: o.retention ?? retentionFromEnv(),
+    audit,
     defaultModel, dirs, defaultWorkdir, allowedRoots, defaultWorkdirLock,
     rateLimiter: new SlidingWindowLimiter(Math.max(0, Math.floor(clientRateLimit))),
   };

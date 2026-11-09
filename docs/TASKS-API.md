@@ -500,6 +500,7 @@ old history may no longer apply.
 | `GET /v1/tools` | `{ "tools": [{ name, description }] }` — the built-in tools |
 | `GET /v1/usage` | Plan usage of the signed-in subscription (`five_hour`, `weekly`, `extra_usage`), cached 5 min; `?force=1` bypasses the cache; `502 usage_unavailable` if it cannot be read |
 | `GET /v1/usage/summary` | Aggregated task usage over `?days=` (default 7, 1–365): `totals` plus `by_day` (UTC) / `by_client` / `by_model` buckets — tasks by status, `input_tokens` (cache included), `output_tokens`, `cache_read/write_tokens`, `fresh_input_tokens` (input minus cache reads), `duration_ms`. Named clients are pinned to their own records; the default key sees every client and may narrow with `?client=` and `?model=` |
+| `GET /v1/audit` | **Admin only (default key).** Newest-first tail (`?limit=` ≤ 1000) of the append-only audit trail (`<data dir>/audit.jsonl`): one entry per user-driven mutation — `task.submit`, `task.cancel` (+reason), `session.create/delete/compact`, MCP server config changes — each naming the acting client. Named clients get `403 audit_forbidden`; prompts are never written to it |
 | `POST /v1/maintenance/run` | Run housekeeping now (log/task compression and retention, session pruning). Live tasks and busy sessions are never touched |
 | `/v1/mcp/…` | MCP server management, see [MCP.md](MCP.md#http-management) |
 

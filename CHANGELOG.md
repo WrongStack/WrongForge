@@ -7,6 +7,15 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Added
+- **Append-only audit trail (`F2402`).** Every user-driven mutation — task
+  submit/cancel, session create/delete/compact, MCP server config changes —
+  is recorded to `<data dir>/audit.jsonl` with the acting client key's
+  identity (prompts and secrets are never written). `GET /v1/audit` reads
+  the newest-first tail; it is admin-only (default key) since the trail
+  attributes actions across clients. Recorded at the route layer, so
+  internal actions (timeouts, restarts, client-disconnect cancels) are not
+  misattributed, and an audit write failure never breaks the API action
+  itself.
 - **Per-client rate limiting on the costing surfaces (`F2401`).**
   `WRONGFORGE_CLIENT_RATE_LIMIT` (requests/minute, default 120; 0 = unlimited)
   applies a sliding-window limit to task submit and the proxy's
