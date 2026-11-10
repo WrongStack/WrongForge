@@ -4,7 +4,7 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
-## [Unreleased]
+## [0.4.20] — 2026-11-10
 
 ### Added
 - **Append-only audit trail (`F2402`).** Every user-driven mutation — task
