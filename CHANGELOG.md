@@ -4,6 +4,20 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Fixed
+- **Compaction now streams its summarization call (`F2501`, issue #8).**
+  The Anthropic SDK refuses non-streaming requests it estimates may exceed
+  10 minutes (60 min × max_tokens / 128k tokens): compaction's 64k
+  escalation budget — added specifically for large sessions — computed a
+  30-minute estimate and was thrown away BEFORE the request was ever sent,
+  so exactly the sessions that needed compacting could never get one and
+  grew until they died at the context limit. The summarizer now streams
+  (`messages.stream` + `finalMessage()`, same response shape, streaming
+  skips the check) and the escalation works again. Found and root-caused
+  by volkanmidilli (#8); their instance had logged 41 occurrences.
+
 ## [0.4.20] — 2026-11-10
 
 ### Added

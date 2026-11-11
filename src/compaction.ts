@@ -284,17 +284,27 @@ export async function compactMessages(
   const older = turns.slice(0, turns.length - keepTurns).flat();
   const recent = turns.slice(turns.length - keepTurns).flat();
 
+  // STREAMING is required here, not just preferred: the SDK refuses
+  // non-streaming requests it estimates may exceed 10 minutes
+  // (calculateNonstreamingTimeout: 60 min × max_tokens / 128k tokens), so the
+  // 64_000-token escalation below computes a 30-minute budget and gets thrown
+  // away BEFORE the request is ever sent — issue #8 (volkanmidilli): large
+  // sessions could never compact and died at the context limit. Streaming
+  // skips that check, and finalMessage() hands back the same Message shape
+  // (content blocks + stop_reason) the non-streaming call returned.
   const runSummary = (maxTokens: number) =>
     runInContext({ cwd: process.cwd(), env: {}, todos: [], cache: "off" }, () =>
-      client.messages.create(
-        {
-          model: modelId,
-          max_tokens: maxTokens,
-          system: [{ type: "text", text: SUMMARY_SYSTEM }],
-          messages: [{ role: "user", content: renderTranscript(older) }],
-        },
-        { signal: abortSignal },
-      ),
+      client.messages
+        .stream(
+          {
+            model: modelId,
+            max_tokens: maxTokens,
+            system: [{ type: "text", text: SUMMARY_SYSTEM }],
+            messages: [{ role: "user", content: renderTranscript(older) }],
+          },
+          { signal: abortSignal },
+        )
+        .finalMessage(),
     );
   const extract = (r: Awaited<ReturnType<typeof runSummary>>): string =>
     r.content

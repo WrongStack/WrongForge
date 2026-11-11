@@ -102,15 +102,20 @@ async function main(): Promise<void> {
   const huge: AgentMessage[] = [{ role: "user", content: "x".repeat(700_000) }];
   assert(renderTranscript(huge, 1000).includes("chars omitted from the middle"), "renderTranscript clips middle");
 
-  const fakeClient = {
+  // every compaction fake speaks STREAM (runSummary uses messages.stream +
+  // finalMessage since F2501: the SDK refuses long non-streaming requests) —
+  // a runSummary that fell back to create would fail here with "not a function"
+  const streamOf = (message: unknown) => ({
     messages: {
-      create: async () => ({ content: [{ type: "text", text: "  the summary  " }] }),
+      stream: () => ({ finalMessage: async () => message }),
     },
-  } as unknown as Anthropic;
+  });
+
+  const fakeClient = streamOf({ content: [{ type: "text", text: "  the summary  " }] }) as unknown as Anthropic;
   assert((await compactMessages(fakeClient, "m", msgs, 2)) === null, "compactMessages: nothing to summarize yet");
   const compacted = await compactMessages(fakeClient, "m", msgs, 1);
   assert(compacted?.summary === "the summary" && compacted.messages[0].role === "user", "compactMessages result");
-  const emptyClient = { messages: { create: async () => ({ content: [] }) } } as unknown as Anthropic;
+  const emptyClient = streamOf({ content: [] }) as unknown as Anthropic;
   let threw = false;
   try {
     await compactMessages(emptyClient, "m", msgs, 1);
@@ -123,16 +128,19 @@ async function main(): Promise<void> {
   // session — the summarizer escalates ONCE to a 64k budget, and if even that
   // hits max_tokens a mechanical recovery (explicit placeholder + archived
   // originals) runs instead of throwing forever. The truncated summary text
-  // is never installed (F602's invariant).
+  // is never installed (F602's invariant). Since F2501 the escalation is
+  // STREAMED (issue #8: the SDK refused a 64k non-streaming request).
   const calls: number[] = [];
   const escalateClient = {
     messages: {
-      create: async (params: { max_tokens: number }) => {
+      stream: (params: { max_tokens: number }) => {
         calls.push(params.max_tokens);
         const fits = params.max_tokens >= 64_000;
         return {
-          stop_reason: fits ? "end_turn" : "max_tokens",
-          content: [{ type: "text", text: fits ? "real summary" : "truncat" }],
+          finalMessage: async () => ({
+            stop_reason: fits ? "end_turn" : "max_tokens",
+            content: [{ type: "text", text: fits ? "real summary" : "truncat" }],
+          }),
         };
       },
     },
@@ -142,11 +150,7 @@ async function main(): Promise<void> {
     escalated?.summary === "real summary" && calls.join(",") === "4000,64000",
     `compactMessages: escalates once to a 64k budget when 4000 cannot fit (calls: ${calls.join(",")})`,
   );
-  const neverFits = {
-    messages: {
-      create: async () => ({ stop_reason: "max_tokens", content: [{ type: "text", text: "truncat" }] }),
-    },
-  } as unknown as Anthropic;
+  const neverFits = streamOf({ stop_reason: "max_tokens", content: [{ type: "text", text: "truncat" }] }) as unknown as Anthropic;
   const recovered = await compactMessages(neverFits, "m", msgs, 1);
   assert(
     recovered !== null && recovered.summary === "" && JSON.stringify(recovered.messages).includes("archived"),

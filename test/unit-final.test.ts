@@ -334,7 +334,18 @@ async function main(): Promise<void> {
       const store = new TaskStore(path.join(dir, "tasks"));
       const client = {
         messages: {
-          stream: () => instantStream("concurrent-task-reply"),
+          // F2501: the summarizer now streams too — it is distinguished from
+          // the agent's own stream calls by carrying a system block and no tools
+          stream: (params: any) => {
+            const summarizer = Array.isArray(params?.system) && !params?.tools;
+            if (!summarizer) return instantStream("concurrent-task-reply");
+            return {
+              finalMessage: async () => {
+                if (gate) await gate;
+                return { stop_reason: "end_turn", content: [{ type: "text", text: "SUMMARY" }], usage };
+              },
+            };
+          },
           create: async () => {
             if (gate) await gate;
             return { stop_reason: "end_turn", content: [{ type: "text", text: "SUMMARY" }], usage };
