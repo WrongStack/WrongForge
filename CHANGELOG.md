@@ -4,7 +4,7 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
-## [Unreleased]
+## [0.4.21] — 2026-11-11
 
 ### Fixed
 - **Compaction now streams its summarization call (`F2501`, issue #8).**
