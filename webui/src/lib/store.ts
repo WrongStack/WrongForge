@@ -97,7 +97,7 @@ const initial: State = {
 
 type Listener = () => void;
 
-class Store {
+export class Store {
   private state: State = initial;
   private listeners = new Set<Listener>();
   private disconnect: (() => void) | null = null;

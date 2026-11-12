@@ -7,6 +7,14 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Added
+- **Web UI test suite (`F2602`).** Vitest lands in the dashboard repo
+  (`npm --prefix webui run test`, 20 tests): the event-fold rules the whole
+  dashboard lives on — queued/waiting state, live status transitions,
+  `agent.report` folding, the queue_wait lifecycle — plus the Proxy tab's
+  anthropic-summary formatters across every wire shape (parsed/raw,
+  streaming SSE replay incl. tool_use partial-json assembly, error
+  envelopes, truncated captures, and the never-throws fallback contract).
+  The release gates now run it (`release.yml`).
 - **Docker distribution (`F2601`).** A multi-stage `Dockerfile` (node:22-slim;
   builds the dashboard, runs the TS source under tsx — no bun needed) with
   the built dashboard embedded, a `/data` volume contract (`WRONGFORGE_HOME`:
