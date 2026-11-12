@@ -350,6 +350,23 @@ npm run mcp -- import ~/.claude.json      # Claude Code / Desktop style { "mcpSe
 Details (all options, secrets, results, failure handling, security):
 **[docs/MCP.md](docs/MCP.md)**.
 
+## Docker
+
+```bash
+docker run -d --name wrongforge -p 8787:8787 -v wrongforge-data:/data \
+  ghcr.io/wrongstack/wrongforge:latest
+```
+
+State lives in the `/data` volume (`WRONGFORGE_HOME`): OAuth tokens, the
+generated API key, task/session stores, logs — mount it or you re-sign-in on
+every restart. Images are published to GHCR on every release (`<version>` +
+`latest`); inside a container the server runs from source under tsx and the
+in-process self-update paths stay off by design — updating = pulling a newer
+image. A `docker-compose.example.yml` ships in the repo (volume, restart
+policy, `HOST=0.0.0.0`, allowed-roots mount example). Agents may only write
+where the container can see: mount the directories you want them to work in
+and pass `WRONGFORGE_ALLOWED_ROOTS`.
+
 ## WrongForge as an MCP server
 
 The reverse direction: `wrongforge mcp-server` runs a **stdio MCP server**

@@ -4,6 +4,21 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Added
+- **Docker distribution (`F2601`).** A multi-stage `Dockerfile` (node:22-slim;
+  builds the dashboard, runs the TS source under tsx — no bun needed) with
+  the built dashboard embedded, a `/data` volume contract (`WRONGFORGE_HOME`:
+  OAuth tokens, api-key, task/session stores), and a `/health` healthcheck.
+  Images publish to `ghcr.io/wrongstack/wrongforge` (`<version>` + `latest`)
+  via a new `docker.yml` workflow on every `v*` tag (plus manual dispatch);
+  a `docker-compose.example.yml` ships in the repo. Inside a container the
+  server is deliberately NOT a compiled binary, so the in-process
+  self-update paths stay off — updating means pulling a newer image.
+  Verified locally end-to-end: build → run → `/health` (reports the image's
+  version), dashboard + assets served, API auth enforced.
+
 ## [0.4.21] — 2026-11-11
 
 ### Fixed

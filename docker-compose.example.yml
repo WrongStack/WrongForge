@@ -1,0 +1,27 @@
+# WrongForge with persistent state in a named volume. `docker compose up -d`
+# then http://127.0.0.1:8787 — sign in once via `docker compose exec wrongforge
+# npx tsx src/main.ts login` (the token lands in the mounted volume and
+# survives restarts and image upgrades).
+services:
+  wrongforge:
+    image: ghcr.io/wrongstack/wrongforge:latest
+    container_name: wrongforge
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - wrongforge-data:/data
+    environment:
+      # bind to all interfaces only if you front it with TLS or trust the network;
+      # keep HOST=127.0.0.1 inside the container is NOT possible for published ports.
+      - HOST=0.0.0.0
+      # optional hardening / tuning, all optional:
+      # - AGENT_API_KEY=wf_your_key_here
+      # - WRONGFORGE_MAX_CONCURRENCY=2
+      # - WRONGFORGE_MAX_QUEUED_PER_CLIENT=50
+      # - WRONGFORGE_CLIENT_RATE_LIMIT=120
+      # - WRONGFORGE_ALLOWED_ROOTS=/data/work
+    # volumes for the directories agents may work in (allowed roots), e.g.:
+    #   - /srv/projects:/srv/projects
+volumes:
+  wrongforge-data:

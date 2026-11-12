@@ -1,0 +1,22 @@
+# Build context hygiene — the build stage installs deps inside the image;
+# nothing host-side belongs in the context (the cache/context shrinks from
+# ~500 MB to a few MB and secrets in untracked local files stay out).
+.git
+.github
+node_modules
+webui/node_modules
+webui/dist
+coverage
+data
+docs
+test
+scripts
+re
+.temp_files
+release
+*.log
+*.md
+!README.md
+.dockerignore
+Dockerfile
+docker-compose.example.yml

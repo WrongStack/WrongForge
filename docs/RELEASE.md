@@ -30,6 +30,12 @@ builds, sha256 checksums, assets attached to a GitHub Release
 (`WrongStack/WrongForge`). Asset names are the contract `wrongforge update`
 downloads — `wrongforge-<os>-<arch>[.exe]` (see `scripts/build-binary.mjs`).
 
+The same tag also runs `.github/workflows/docker.yml`, which builds the
+container image and pushes `ghcr.io/wrongstack/wrongforge:<version>` +
+`:latest` to GHCR (GITHUB_TOKEN, `packages: write`). `workflow_dispatch`
+lets you build/test the image without a release. See the Docker section in
+the README for the runtime contract (`/data` volume, `HOST=0.0.0.0`).
+
 ## One-line install
 
 ```bash
