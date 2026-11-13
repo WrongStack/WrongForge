@@ -186,7 +186,7 @@ async function main(): Promise<void> {
   // Real server entry, exercised in a CHILD process (clean exit → coverage
   // flushes; isolation keeps this suite's later spawns untouched).
   const entry = await run("test/helpers/entry-runner.ts", [], {
-    env: { ...srvEnv, WF_ENTRY_WORKDIR: tmp },
+    env: { ...srvEnv, WF_ENTRY_WORKDIR: tmp, WRONGFORGE_MAX_BODY_BYTES: "300000", WF_EXPECTED_BODY_CAP: "300000" },
     timeoutMs: 90_000,
   });
   if (!(entry.code === 0 && entry.out.includes("ENTRY-OK"))) { console.error("ENTRYFULL", entry.out.slice(-1500), "ERR:", entry.err.slice(-500)); }

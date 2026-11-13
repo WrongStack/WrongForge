@@ -46,10 +46,17 @@ import { SessionStore } from "./sessions.js";
 import { startLiveView } from "./liveview.js";
 import { checkForUpdate, cleanupOldBinary, installUpdate, isCompiledBinary, lastUpdateCheck, prepareUpdate, UPDATE_REPO } from "./update.js";
 
-// 40 MB: prompt JSON is tiny, but image-bearing submits carry up to 5 base64
-// images × ~6.9 MB each (the 5 MB decoded API limit) — the proxy surface
-// already sits at 32 MB for the same reason. GET/DELETE bodies are tiny.
-const MAX_BODY = 40_000_000;
+// 40 MB by default: prompt JSON is tiny, but image-bearing submits carry up
+// to 5 base64 images × ~6.9 MB each (the 5 MB decoded API limit) — the proxy
+// surface already sits at 32 MB for the same reason. Tunable via env (tests
+// use a small cap so the 413 assertion needs no giant uploads).
+const MAX_BODY = Math.max(
+  1000,
+  (() => {
+    const n = Number(process.env.WRONGFORGE_MAX_BODY_BYTES);
+    return process.env.WRONGFORGE_MAX_BODY_BYTES !== undefined && Number.isFinite(n) && n >= 1000 ? n : 40_000_000;
+  })(),
+);
 const TERMINAL_EVENTS = new Set(["task.completed", "task.failed", "task.cancelled", "task.timed_out"]);
 const ALL_STATUSES: TaskStatus[] = ["queued", "running", "completed", "failed", "cancelled", "timed_out"];
 

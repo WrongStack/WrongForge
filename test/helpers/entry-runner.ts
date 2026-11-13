@@ -54,13 +54,15 @@ if (info.status !== 200) throw new Error("/v1/info failed");
 const unauthorized = await get("/v1/tools");
 if (unauthorized.status !== 401) throw new Error("auth required failed");
 
-// oversized body -> 413
+// oversized body -> 413 (the cap is WRONGFORGE_MAX_BODY_BYTES — the driving
+// test spawns the server with a small cap so this check needs no giant upload)
+const cap = Number(process.env.WF_EXPECTED_BODY_CAP ?? 40_000_000);
 const big = await fetch(`${base}/v1/tasks`, {
   method: "POST",
   headers: auth,
-  body: JSON.stringify({ prompt: "x".repeat(3 * 1024 * 1024) }),
+  body: JSON.stringify({ prompt: "x".repeat(cap + 1000) }),
 });
-if (big.status !== 413) throw new Error(`oversized body should 413, got ${big.status}`);
+if (big.status !== 413) throw new Error(`oversized body should 413, got ${big.status}: ${await big.text().catch(() => "")}`);
 
 await started.shutdown();
 console.log("ENTRY-OK");
