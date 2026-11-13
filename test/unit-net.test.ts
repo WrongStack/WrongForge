@@ -120,7 +120,10 @@ async function main(): Promise<void> {
   const keyClient = createClaudeClient(moauth);
   const keyDone = await keyClient.messages.stream({ model: "m", max_tokens: 10, messages: [{ role: "user", content: "x" }] }).finalMessage();
   assert(seen.at(-1)?.headers["x-api-key"] === "sk-ant-test-1234567890", "api-key path sends x-api-key");
-  assert(!seen.at(-1)?.headers["authorization"], "api-key path sends no bearer");
+  // SDK 1.x sends Bearer for apiKey clients too; we keep x-api-key alongside
+  // (dual header — whichever acceptance behavior the endpoint has) with the
+  // SAME key, so the bearer value is the key itself, not an OAuth token
+  assert(seen.at(-1)?.headers["authorization"] === "Bearer sk-ant-test-1234567890", "api-key path bearer carries the key itself (dual header, SDK 1.x)");
   assert(keyDone.type === "message", "api-key client roundtrip");
   delete process.env.ANTHROPIC_API_KEY;
 

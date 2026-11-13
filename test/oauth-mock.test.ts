@@ -216,6 +216,17 @@ function main(): Promise<void> {
             beta.includes("interleaved-thinking-2025-05-14"),
           `beta headers merged: ${beta}`,
         );
+        // costume lock (SDK 1.x migration): the SDK hardcodes its own API
+        // version (1.8.0 ships 2026-10-21); the wire MUST stay at the captured
+        // 2023-06-01 — oauthFetch overrides it unconditionally
+        check(
+          h["anthropic-version"] === "2023-06-01",
+          `anthropic-version stays at the captured 2023-06-01 (got ${h["anthropic-version"]})`,
+        );
+        check(
+          String(h["user-agent"]).includes("claude-cli/2.1.300"),
+          `the captured claude-cli UA still wins over the SDK's (got ${h["user-agent"]})`,
+        );
 
         // 3b) retryable upstream statuses surface as a task-visible
         //     agent.report (issue #7: the SDK's silent retries left RUNNING

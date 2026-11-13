@@ -38,6 +38,24 @@ package.json and the git tags that drive the release workflow.
   Verified locally end-to-end: build → run → `/health` (reports the image's
   version), dashboard + assets served, API auth enforced.
 
+### Changed
+- **Anthropic SDK 0.134 → 1.8.0 (`F2801`).** The 1.x major's breaking
+  changes, handled: (1) the SDK now hardcodes its own `anthropic-version`
+  (1.8.0 ships 2026-10-21) — `oauthFetch` overrides it UNCONDITIONALLY back
+  to the captured `2023-06-01` (it used to only set-if-absent, which had
+  been a silent no-op since the SDK always sets the header — the upgrade
+  would have silently changed the wire protocol version); (2) apiKey
+  clients now send `Authorization: Bearer` instead of `x-api-key` — the
+  pay-as-you-go client now sends BOTH (the same key in each) so either
+  endpoint acceptance behavior works; (3) the SDK's new `X-Stainless-
+  Timeout` header rides along (informational; consistent with a newer-SDK
+  client). Wire-compat is now LOCKED by tests: oauth-mock asserts
+  `anthropic-version: 2023-06-01` and the captured `claude-cli/2.1.300`
+  UA verbatim. Verified: full suite 20/20, compaction streaming, retry
+  visibility (the SDK still sends the retry-count header our reports
+  quote), model listing, and the effort-cap self-heal all behave
+  identically under 1.8.0.
+
 ## [0.4.21] — 2026-11-11
 
 ### Fixed

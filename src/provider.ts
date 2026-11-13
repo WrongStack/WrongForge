@@ -458,9 +458,11 @@ export function oauthFetch(oauth: ClaudeOAuth): typeof globalThis.fetch {
       const headers = new Headers(init?.headers);
       headers.delete("x-api-key"); // auth is owned by this layer
       headers.set("authorization", `Bearer ${token}`);
-      if (!headers.has("anthropic-version")) {
-        headers.set("anthropic-version", PROTOCOL.anthropicVersion);
-      }
+      // UNCONDITIONAL override, never set-if-absent: the SDK's own default is
+      // whatever API version it shipped with (1.8.0 hardcodes 2026-10-21) and
+      // the captured Claude Code protocol — the costume's contract — is
+      // 2023-06-01. We own the protocol version (issue: SDK 1.x migration).
+      headers.set("anthropic-version", PROTOCOL.anthropicVersion);
       const flags = new Set(
         (headers.get("anthropic-beta") ?? "")
           .split(",")
@@ -636,6 +638,10 @@ export function createClaudeClient(oauth: ClaudeOAuth): Anthropic {
       apiKey,
       maxRetries: maxRetriesFromEnv(),
       baseURL: normalizeBaseURL(process.env.ANTHROPIC_BASE_URL),
+      // SDK 1.x sends Authorization: Bearer for apiKey clients; the console
+      // API historically keys on x-api-key — send BOTH so the pay-as-you-go
+      // path works against either acceptance behavior.
+      defaultHeaders: { "x-api-key": apiKey },
     });
   }
   // Claude Code checks in with the bootstrap endpoint at every startup; the
