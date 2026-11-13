@@ -22,7 +22,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentMessage } from "../messages.js";
+import type { AgentMessage, ImagePart, TextPart } from "../messages.js";
+import { readTaskImages, validateImages, writeTaskImages } from "../images.js";
 import { runAgentTurn, type AgentEvent, type TurnResult } from "../agent.js";
 import { runInContext, type TaskContext } from "../context.js";
 import type { Logger } from "../log.js";
@@ -328,6 +329,12 @@ export class TaskManager {
       return { task: existing, deduplicated: true };
     }
 
+    // ---- image attachments (validateImages: whitelist, ≤ 5 MB each,
+    // ≤ 5 images, magic bytes must match the declared media type)
+    const imagesCheck = validateImages(req.images);
+    if ("error" in imagesCheck) bad("invalid_request", imagesCheck.error);
+    const validatedImages = imagesCheck.images;
+
     const model = req.model ?? o.defaultModel;
     if (typeof model !== "string" || !MODEL_RE.test(model)) bad("invalid_request", "`model` is not a valid model id");
 
@@ -430,8 +437,7 @@ export class TaskManager {
     // share); the default/admin key is never capped so operator tooling and
     // pre-0.4.17 single-key setups keep working unchanged. Checked here,
     // before the session is created, so a rejection leaves no state behind.
-    const cap = this.o.maxQueuedPerClient;
-    if (client !== "default" && cap > 0) {
+    const cap = this.o.maxQueuedPerClient;    if (client !== "default" && cap > 0) {
       const queued = this.queue.filter((id) => (this.o.store.get(id)!.client ?? "default") === client).length;
       if (queued >= cap) {
         throw new SubmitError(429, "queue_full", `client "${client}" already has ${queued} queued tasks (WRONGFORGE_MAX_QUEUED_PER_CLIENT=${cap}) — cancel some or wait for slots`);
@@ -487,6 +493,15 @@ export class TaskManager {
       progress: { steps: 0, tool_calls: 0, last_event_seq: 0, last_activity_at: now },
     };
     o.store.put(rec);
+
+    // ---- images: validated already; persist the decoded bytes as files in
+    // the task dir and keep only the references on the record — megabytes of
+    // base64 never land in task.json, the audit trail or the logs.
+    if (validatedImages.length) {
+      rec.images = writeTaskImages(path.join(o.store.dir, id), validatedImages);
+      o.store.put(rec);
+    }
+
     o.logger.info("task.submitted", {
       task_id: id, session_id: sessionId, session_created: sessionCreated, model, workdir, workdir_lock: workdirLock, cache, effort,
       priority: rec.priority ?? "normal", client,
@@ -916,6 +931,16 @@ export class TaskManager {
     // Task-specific facts live in the user message so the system prompt (and
     // with it the cached prefix of the session) stays identical across tasks.
     const userMessage = `${buildTaskPreamble({ taskId: id, cwd: rec.workdir })}\n\n${rec.prompt}`;
+    // submitted images ride as inline content blocks in the FIRST user
+    // message (read back from the task dir — the base64 never sat in the
+    // record or the session store at submit time)
+    const taskImages = rec.images?.length
+      ? readTaskImages(path.join(o.store.dir, id), rec.images)
+      : [];
+    const firstContent: (TextPart | ImagePart)[] = [
+      ...taskImages.map((img) => ({ type: "image" as const, media_type: img.media_type, data: img.data })),
+      { type: "text" as const, text: userMessage },
+    ];
     const system = buildTaskSystemPrompt({ systemAppend: rec.system_append, promptDir: o.promptDir });
     const guard = { clearAt: cfg.clearAt, keepToolResults: cfg.keepToolResults, maxToolResultChars: cfg.maxToolResultChars };
 
@@ -926,7 +951,7 @@ export class TaskManager {
     let retried = false;
     for (;;) {
       const base: AgentMessage[] = session?.messages ?? [];
-      history = [...base, { role: "user", content: userMessage }];
+      history = [...base, { role: "user", content: taskImages.length ? firstContent : userMessage }];
       mark = base.length;
       turn = null;
       thrown = undefined;

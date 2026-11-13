@@ -593,6 +593,58 @@ async function main(): Promise<void> {
     }
   }
 
+  // =============================================================== image attachments (F2701)
+  {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const h4 = await startHarness({ defaultWorkdir: undefined });
+    const d = h4.mkdir("imgs");
+
+    // validation: whitelist + base64 + size + count
+    const badType = await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "x", images: [{ media_type: "image/bmp", data: png }] });
+    assert(badType.status === 400 && /media_type/.test(badType.body.error.message), "unsupported media type -> 400");
+    const badB64 = await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "x", images: [{ media_type: "image/png", data: "not@base64!" }] });
+    assert(badB64.status === 400 && /base64/.test(badB64.body.error.message), "invalid base64 -> 400");
+    const big = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(5 * 1024 * 1024)]);
+    const tooBig = await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "x", images: [{ media_type: "image/png", data: big.toString("base64") }] });
+    assert(tooBig.status === 400 && /5 MB/.test(tooBig.body.error.message), "over 5 MB -> 400 with the limit named");
+    const six = await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "x", images: Array.from({ length: 6 }, () => ({ media_type: "image/png", data: png })) });
+    assert(six.status === 400 && /at most 5/.test(six.body.error.message), "6 images -> 400");
+
+    // the happy path: bytes land as task-dir files; the request carries image blocks
+    const seen: any[] = [];
+    h4.fake.script = (ctx: any) => {
+      seen.push(ctx.body);
+      return { kind: "text", text: "saw the image", usage: { input: 50, output: 5 } };
+    };
+    const tRes = await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "[[say what-is-this]]", images: [{ media_type: "image/png", data: png }] });
+    assert(tRes.status === 202, `image submit -> 202 (got ${tRes.status})`);
+    const t = tRes.body.task;
+    assert(t.images?.[0]?.file === "images/00.png" && t.images?.[0]?.media_type === "image/png", "the record carries image metadata refs (no base64)");
+    assert(fs.existsSync(path.join(h4.home, "tasks", t.id, "images", "00.png")), "the decoded bytes are stored in the task dir");
+    let done: any = { status: "timeout" };
+    for (let i = 0; i < 200; i++) {
+      const r = await h4.api("GET", `/v1/tasks/${t.id}`);
+      if (["completed", "failed", "cancelled", "timed_out"].includes(r.body.task?.status)) {
+        done = r.body.task;
+        break;
+      }
+      await sleep(50);
+    }
+    assert(done.status === "completed", "the image task completes");
+    const wire = seen.find((b) => Array.isArray(b?.messages) && b.messages.length > 0);
+    const firstBlock = wire?.messages?.[0]?.content?.[0];
+    assert(firstBlock?.type === "image" && firstBlock.source?.data === png, "the first user message carries the image as an API block");
+    const taskJson = fs.readFileSync(path.join(h4.home, "tasks", t.id, "task.json"), "utf8");
+    assert(!taskJson.includes(png), "task.json does not embed the base64");
+    // validation happens before session creation: a rejected submit leaves no session
+    const cnt0 = (await h4.api("GET", "/v1/sessions")).body.sessions.length;
+    await h4.api("POST", "/v1/tasks", { workdir: d, prompt: "x", images: [{ media_type: "image/bmp", data: png }] });
+    const cnt1 = (await h4.api("GET", "/v1/sessions")).body.sessions.length;
+    assert(cnt0 === cnt1, "a rejected image submit creates no session");
+
+    await h4.close();
+  }
+
   await h3.close();
   await fake.close();
   console.log("TASKS CORE TESTS PASSED ✓ (auth, validation, lifecycle, events, idempotency, wait/stream/replay/long-poll, sessions, cache prefix stability, restart continuity, recovery, maintenance, dashboard, event-log integrity, terminal-event delivery)");

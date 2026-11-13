@@ -582,18 +582,29 @@ interface McpContentBlock {
   resource?: { uri?: string; text?: string; blob?: string; mimeType?: string };
 }
 
-/** CallToolResult -> `{ ok, output | error }` for the model. */
+/** CallToolResult -> `{ ok, output | error }` for the model. Image content
+ *  blocks ride as inline `images` on the output (messages.ts forwards them
+ *  as API image blocks — the model sees MCP tool images, CC parity); types
+ *  the API does not accept (audio) stay summarized. */
 export function mapCallResult(res: unknown): Record<string, unknown> {
   const r = res as { content?: McpContentBlock[]; isError?: boolean; structuredContent?: unknown; toolResult?: unknown };
   const parts: string[] = [];
+  const images: Array<{ media_type: string; data: string }> = [];
   for (const c of r?.content ?? []) {
     switch (c.type) {
       case "text":
         parts.push(c.text ?? "");
         break;
-      case "image":
-        parts.push(`[image ${c.mimeType ?? ""}, ${Math.round(((c.data ?? "").length * 3) / 4)} bytes — not shown]`);
+      case "image": {
+        const mt = c.mimeType ?? "image/png";
+        if (["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mt)) {
+          images.push({ media_type: mt, data: c.data ?? "" });
+          parts.push(`[image ${mt} attached]`);
+        } else {
+          parts.push(`[image ${mt}, ${Math.round(((c.data ?? "").length * 3) / 4)} bytes — unsupported by the API, not shown]`);
+        }
         break;
+      }
       case "audio":
         parts.push(`[audio ${c.mimeType ?? ""} — not shown]`);
         break;
@@ -621,6 +632,7 @@ export function mapCallResult(res: unknown): Record<string, unknown> {
   return {
     ok: true,
     output: text,
+    ...(images.length ? { images } : {}),
     ...(r?.structuredContent !== undefined && parts.length ? { structured: r.structuredContent } : {}),
     ...(truncated ? { truncated: true } : {}),
   };

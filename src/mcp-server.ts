@@ -107,7 +107,7 @@ export function buildTools(bridge: McpBridge) {
 
   const submit = async (a: Record<string, any>): Promise<{ content: JsonRpcContent[] }> => {
     const body: Record<string, unknown> = { prompt: a.prompt };
-    for (const k of ["workdir", "session_id", "task_id", "model", "effort", "priority", "context", "system_append"]) {
+    for (const k of ["workdir", "session_id", "task_id", "model", "effort", "priority", "context", "system_append", "images"]) {
       if (a[k] !== undefined) body[k] = a[k];
     }
     for (const k of ["max_steps", "timeout_ms"]) if (a[k] !== undefined) body[k] = a[k];
@@ -144,6 +144,18 @@ export function buildTools(bridge: McpBridge) {
           timeout_ms: { type: "integer" },
           context: { type: "object", description: "Opaque JSON echoed back in the task document." },
           system_append: { type: "string" },
+          images: {
+            type: "array",
+            description: "Image attachments (max 5, ≤ 5 MB each decoded; png/jpeg/gif/webp) the agent sees in its first message.",
+            items: {
+              type: "object",
+              properties: {
+                media_type: { type: "string", enum: ["image/png", "image/jpeg", "image/gif", "image/webp"] },
+                data: { type: "string", description: "base64-encoded image bytes (no data: prefix)." },
+              },
+              required: ["media_type", "data"],
+            },
+          },
           wait: { type: "boolean", description: "true = wait up to 240 s for completion and return the final task document." },
         },
         required: ["prompt"],

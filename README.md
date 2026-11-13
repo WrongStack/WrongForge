@@ -403,6 +403,10 @@ memory only. Non-loopback gateway hosts must be listed in
 `npm run serve` starts a local server (plain `node:http`) around the same agent
 loop. An orchestrator submits a **task**; the agent works on it asynchronously
 and emits numbered events that can be consumed live or replayed later.
+**Images** flow both ways: attach base64 png/jpeg/gif/webp to a submit
+(`images`, ≤ 5 × 5 MB — see TASKS-API.md) and the agent sees them in its first
+message; the agent's `read` tool returns images the same way, and MCP tool
+images are forwarded too.
 
 ```bash
 # the key comes from AGENT_API_KEY, else ~/.wrongforge/api-key; if neither

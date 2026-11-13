@@ -120,6 +120,12 @@ export interface TaskRecord {
    * are owned by their creator, so two orchestrators never share history.
    */
   client?: string;
+  /**
+   * Image attachment metadata refs — the decoded bytes live as files in the
+   * task dir (`images/NN.<ext>`), re-read at request time. Written by
+   * submit from the request's `images` (see src/images.ts).
+   */
+  images?: Array<{ file: string; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; bytes: number }>;
   /** Names only — values are never persisted. */
   env_keys: string[];
   system_append?: string;
@@ -213,6 +219,14 @@ export interface SubmitRequest {
    * max_concurrency 1 a low-priority task effectively never starts.
    */
   priority?: "low" | "normal";
+  /**
+   * Image attachments, base64: `{ media_type: "image/png"|"image/jpeg"|
+   * "image/gif"|"image/webp", data: "<base64>" }`. Limits: ≤ 5 MB decoded
+   * per image, ≤ 5 images (src/images.ts; magic bytes must match). The
+   * decoded bytes are stored as files in the task dir; the first user
+   * message carries them as inline image blocks the model can see.
+   */
+  images?: Array<{ media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string }>;
   env?: Record<string, string>;
   system_append?: string;
   context?: unknown;

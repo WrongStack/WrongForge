@@ -49,6 +49,21 @@ async function main(): Promise<void> {
   const r2 = await run(agentTools.read, { path: "src/app.ts", offset: 2, limit: 1 });
   assert(r2.content.trim() === "2\tline two", "read offset/limit works");
 
+  // --- read on images: png/jpeg/gif/webp come back as inline image blocks ---
+  // 1x1 transparent PNG (magic bytes 89 50 4E 47) + a fake "BMP" (BM magic)
+  const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  fs.writeFileSync(path.join(dir, "tiny.png"), Buffer.from(pngB64, "base64"));
+  fs.writeFileSync(path.join(dir, "fake.bmp"), Buffer.concat([Buffer.from("BM"), Buffer.alloc(64)]));
+  const ri = await run(agentTools.read, { path: "tiny.png" });
+  assert(ri.ok === true && ri.type === "image", "read sniffs a png and returns type image");
+  assert(ri.images?.[0]?.data === pngB64 && ri.images?.[0]?.media_type === "image/png", "read returns the base64 as an images entry (the wire convention)");
+  const rb = await run(agentTools.read, { path: "fake.bmp" });
+  assert(rb.ok === false && /binary file/.test(rb.error), "a non-image binary stays refused");
+  // oversize: png magic + 6 MB of zeros (still "valid" magic, too big for the API)
+  fs.writeFileSync(path.join(dir, "big.png"), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(6 * 1024 * 1024)]));
+  const ro = await run(agentTools.read, { path: "big.png" });
+  assert(ro.ok === false && /API limit is 5 MB/.test(ro.error), `oversize image refuses with the API limit (got ${ro.error})`);
+
   // --- edit: exact replace ---
   const e1 = await run(agentTools.edit, {
     path: "src/app.ts",

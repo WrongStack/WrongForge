@@ -259,6 +259,41 @@ async function main(): Promise<void> {
   assert(toApiMessages([{ role: "user", content: "" }]).length === 0, "toApiMessages: empty string skipped");
   assert(toApiMessages([{ role: "assistant", content: [] }]).length === 0, "toApiMessages: empty parts skipped");
   assert(toApiMessages([{ role: "tool", content: [] }]).length === 0, "toApiMessages: empty tool msg skipped");
+
+  // F2701: images ride through the pipeline as API image blocks —
+  //  a) a user message part,  b) a tool_result's `images` output convention
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const imgWire = toApiMessages([
+    { role: "user", content: [{ type: "image", media_type: "image/png", data: png }, { type: "text", text: "what is this?" }] },
+  ]);
+  assert(JSON.stringify(imgWire[0].content[0]) === JSON.stringify({ type: "image", source: { type: "base64", media_type: "image/png", data: png } }), "toApiMessages: user image part -> API image block");
+  assert((imgWire[0].content[1] as any).text === "what is this?", "toApiMessages: the text part follows the image");
+  const toolImgWire = toApiMessages([
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "read", input: { path: "t.png" } }] },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "c1",
+          toolName: "read",
+          output: { ok: true, type: "image", path: "t.png", bytes: 70, images: [{ media_type: "image/png", data: png }] },
+        },
+      ],
+    },
+  ]);
+  const tr: any = toolImgWire[1].content[0];
+  assert(tr.type === "tool_result" && Array.isArray(tr.content), "toApiMessages: image tool_result carries block content");
+  assert(JSON.stringify(tr.content[0]) === JSON.stringify({ type: "image", source: { type: "base64", media_type: "image/png", data: png } }), "toApiMessages: image block first");
+  assert(String(tr.content[1].text).includes('"path":"t.png"'), "toApiMessages: the remaining fields stay as text");
+  assert(!JSON.stringify(tr.content).includes('"images"'), "toApiMessages: the blob is not double-embedded");
+  // a media type the API does not accept is dropped, not forwarded (with a note)
+  const dropped = toApiMessages([
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "c2", toolName: "mcp", output: { images: [{ media_type: "image/svg+xml", data: "<svg/>" }] } }] },
+  ]);
+  const droppedJson = JSON.stringify(dropped);
+  assert(droppedJson.includes("unsupported format"), "a non-whitelisted image is dropped with a note");
+  assert(!droppedJson.includes("<svg/>"), "the dropped image's data is not forwarded");
   const api = toApiMessages([
     { role: "assistant", content: [{ type: "tool-call", toolCallId: "t1", toolName: "bash", input: undefined }] },
     { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", toolName: "bash", output: { a: 1 } }] },

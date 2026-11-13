@@ -7,6 +7,17 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Added
+- **Image attachments, end to end (`F2701`).** Tasks accept base64 images
+  (`images` on submit: png/jpeg/gif/webp, ≤ 5 MB decoded each, ≤ 5 images;
+  magic bytes must match the declared media type). The decoded bytes are
+  stored as files in the task dir (task.json and the audit trail carry only
+  metadata refs — no megabytes of base64 in logs), and the agent SEES them
+  as inline image blocks in its first message. The agent's `read` tool now
+  returns png/jpeg/gif/webp files as inline images too (CC parity — they
+  used to be refused as binary), and MCP tool images are forwarded to the
+  model instead of a "[image not shown]" placeholder. The task API's
+  request-body cap rises accordingly (1 MB → 40 MB; the proxy surface was
+  already at 32 MB).
 - **Web UI test suite (`F2602`).** Vitest lands in the dashboard repo
   (`npm --prefix webui run test`, 20 tests): the event-fold rules the whole
   dashboard lives on — queued/waiting state, live status transitions,
