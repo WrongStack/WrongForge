@@ -4,6 +4,32 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [0.4.23] — 2026-11-17
+
+### Added
+- **`WRONGFORGE_MAX_BODY_BYTES` — env-tunable request-body cap (`F2603`).**
+  Default 40 MB (the image headroom from 0.4.22), minimum 1000; the
+  oversized-body test now spawns the server with a 300 KB cap so the 413
+  assertion is deterministic with a tiny payload (the 43 MB upload raced
+  CI sockets: Linux/macOS got 400, Windows 413).
+
+### Fixed
+- **`wait_task` on a nonexistent task fails fast (`F2904`).** The MCP tool
+  burned its ENTIRE timeout polling a task id that was never submitted and
+  then reported "still running" — now it fails immediately with
+  `no task "<id>"` (control: existing tasks still wait normally; the 300 s
+  cap does not slow the fast fail).
+- **Out-of-range `WRONGFORGE_MAX_BODY_BYTES` no longer silently ignored
+  (`F2902`).** Values below the 1 KB floor (or non-numeric) fell back to
+  the 40 MB default with zero feedback; the server now logs
+  `config.max_body_bytes_invalid {value, used}` (mirroring the existing
+  max_concurrency warning).
+
+### Documentation
+- **`WRONGFORGE_MAX_BODY_BYTES` documented (`F2901`)** in README's
+  environment table and TASKS-API's limits table (the knob gates every /v1
+  request body and was undiscoverable).
+
 ## [0.4.22] — 2026-11-13
 
 ### Added
