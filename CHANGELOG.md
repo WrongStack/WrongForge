@@ -4,6 +4,25 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [0.4.24] — 2026-11-18
+
+### Fixed
+- **Release completion — fixes announced in 0.4.23 whose source missed the
+  release commit (`F2904/02/01`).** v0.4.23's release commit carried only
+  the changelog and version bump, so the shipped binaries and docs lacked:
+  the `wait_task` fast-fail on nonexistent tasks (F2904 — now in
+  src/mcp-server.ts with its regression test), the body-cap invalid-value
+  warning (F2902 — now in src/server.ts), and the WRONGFORGE_MAX_BODY_BYTES
+  doc rows (F2901 — now in README + TASKS-API).
+
+### Added
+- **KNOWN_MODELS synced to the CC 2.1.330 catalog (`F2905`).** `/v1/info`
+  models + model_details now list 18 models including the Fable/Mythos
+  generations (claude-fable-5/5-1/5-2, claude-mythos-5/5-1/5-2 — fable-5-2
+  is CC's current default Fable) and the opus-4-5-2/4-6/4-7/4-8/5,
+  sonnet-4-5-2/4-6/5, haiku-4-5-2 line. No behavior change: DEFAULT_MODEL
+  stays claude-sonnet-5-5 and unknown ids are still submitted as-is.
+
 ## [0.4.23] — 2026-11-17
 
 ### Added
