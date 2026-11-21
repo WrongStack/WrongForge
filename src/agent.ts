@@ -25,10 +25,26 @@ import { toApiInputSchema } from "./tools/util.js";
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
 
 export const KNOWN_MODELS: Record<string, string> = {
+  // current-generation defaults (the four an orchestrator usually picks)
   "claude-sonnet-5-5": "balanced default — coding and agent work ($2/$10 per MTok)",
   "claude-opus-5-5": "Anthropic's recommendation for most workloads ($4/$20 per MTok)",
-  "claude-fable-5-1": "deepest reasoning / long agent runs ($10/$50 per MTok)",
+  "claude-fable-5-2": "current default Fable — deepest reasoning ($8/$40 per MTok, $0.20 cache reads; CC 2.1.325 release notes)",
+  "claude-mythos-5-2": "latest Mythos generation",
   "claude-haiku-5-5": "fast and economical, high volume ($0.10/$0.50 per MTok)",
+  // prior generations still served by the API (CC 2.1.330 catalog)
+  "claude-sonnet-5": "first Sonnet 5 generation; superseded by 5-5",
+  "claude-sonnet-4-6": "prior-generation Sonnet",
+  "claude-sonnet-4-5-2": "prior-generation Sonnet 4.5 refresh",
+  "claude-opus-5": "first Opus 5 generation; superseded by 5-5",
+  "claude-opus-4-8": "Opus 4.8 (pre-5.x flagship)",
+  "claude-opus-4-7": "prior Opus generation",
+  "claude-opus-4-6": "prior Opus generation",
+  "claude-opus-4-5-2": "prior-generation Opus 4.5 refresh",
+  "claude-fable-5": "first Fable generation",
+  "claude-fable-5-1": "prior Fable generation — long agent runs ($10/$50 per MTok)",
+  "claude-mythos-5": "first Mythos generation",
+  "claude-mythos-5-1": "prior Mythos generation",
+  "claude-haiku-4-5-2": "Haiku 4.5 refresh",
 };
 
 export const SYSTEM_PROMPT = `You are a terminal-based AI coding assistant running on the user's machine.
