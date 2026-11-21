@@ -50,13 +50,10 @@ import { checkForUpdate, cleanupOldBinary, installUpdate, isCompiledBinary, last
 // to 5 base64 images × ~6.9 MB each (the 5 MB decoded API limit) — the proxy
 // surface already sits at 32 MB for the same reason. Tunable via env (tests
 // use a small cap so the 413 assertion needs no giant uploads).
-const MAX_BODY = Math.max(
-  1000,
-  (() => {
-    const n = Number(process.env.WRONGFORGE_MAX_BODY_BYTES);
-    return process.env.WRONGFORGE_MAX_BODY_BYTES !== undefined && Number.isFinite(n) && n >= 1000 ? n : 40_000_000;
-  })(),
-);
+// Resolved in createAgentServer (where the logger lives) — invalid or
+// out-of-range values (< 1000) fall back to the 40 MB default WITH a warning,
+// never silently (see the F2902 proof).
+let MAX_BODY = 40_000_000;
 const TERMINAL_EVENTS = new Set(["task.completed", "task.failed", "task.cancelled", "task.timed_out"]);
 const ALL_STATUSES: TaskStatus[] = ["queued", "running", "completed", "failed", "cancelled", "timed_out"];
 
@@ -143,6 +140,18 @@ Build it once:</p>
 export function createAgentServer(opts: ServerOptions): http.Server {
   const { app, oauth } = opts;
   const manager = app.manager;
+  // Resolve the body cap here (logger in scope): invalid or out-of-range env
+  // values (< 1000) fall back to the 40 MB default WITH a warning, never
+  // silently — a silently-ignored cap is an operator setting nobody can see
+  // (the F2902 proof).
+  {
+    const raw = process.env.WRONGFORGE_MAX_BODY_BYTES;
+    const n = Number(raw);
+    if (raw !== undefined) {
+      if (Number.isFinite(n) && n >= 1000) MAX_BODY = n;
+      else app.logger.warn("config.max_body_bytes_invalid", { value: raw, used: MAX_BODY });
+    }
+  }
   const webuiDir = opts.webuiDir ?? DEFAULT_WEBUI_DIR;
   // key -> client name; the default key ALWAYS maps to "default" (the admin
   // view), merged in no matter what the caller passed. Missing map = single-key install.
@@ -776,6 +785,7 @@ export function createAgentServer(opts: ServerOptions): http.Server {
       throw new HttpError(401, "unauthorized", "missing or wrong API key (send `Authorization: Bearer <key>`)");
     }
     if (parts[0] !== "v1") throw new HttpError(404, "not_found", "unknown route");
+    console.error("[dispatch] " + method + " " + url.pathname);
     const area = parts[1];
 
     // Rate limit the COSTING surfaces per named client (issue-#7 family):

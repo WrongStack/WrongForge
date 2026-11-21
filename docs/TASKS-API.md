@@ -536,7 +536,7 @@ Errors have the shape `{ "error": { "code": "…", "message": "…" } }`.
 
 | What | Limit |
 |---|---|
-| request body | 40 000 000 bytes (image-bearing submits carry up to 5 base64 images × ~6.9 MB) |
+| request body | 40 000 000 bytes (image-bearing submits carry up to 5 base64 images × ~6.9 MB; tunable via `WRONGFORGE_MAX_BODY_BYTES`, minimum 1000) |
 | `prompt` | 200 000 chars |
 | `max_steps` | 1–500 (default 50) |
 | `timeout_ms` | 1000–14 400 000 (default 30 min) |

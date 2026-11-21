@@ -77,6 +77,12 @@ async function main(): Promise<void> {
   const waited = text(await client.callTool({ name: "wait_task", arguments: { task_id: t2.id, timeout_ms: 20_000 } }));
   assert(waited.status === "completed", "wait_task blocks to completion");
 
+  // ---- F2904 regression: wait_task on a nonexistent task fails FAST (no full-timeout burn)
+  const t0nf = Date.now();
+  const nf = await client.callTool({ name: "wait_task", arguments: { task_id: "tsk_never_existed", timeout_ms: 5000 } });
+  const e1 = Date.now() - t0nf;
+  assert(nf.isError === true && e1 < 2500 && (nf.content?.[0]?.text ?? "").includes('no task "tsk_never_existed"'), `wait_task on a nonexistent task fails fast (elapsed ${e1} ms)`);
+
   // ---- usage_summary sees the tasks the MCP client submitted
   await sleep(150);
   const usage = text(await client.callTool({ name: "usage_summary", arguments: { days: 1 } }));

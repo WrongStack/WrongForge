@@ -94,12 +94,20 @@ export function buildTools(bridge: McpBridge) {
 
   const detail = async (taskId: string): Promise<any> => (await api("GET", `/v1/tasks/${taskId}`)).body?.task ?? null;
 
-  /** Polls a task to a terminal state; null result = the tool timeout hit. */
-  const waitTask = async (taskId: string, timeoutMs: number): Promise<any> => {
+  /** Polls a task to a terminal state. A task id the server does not know
+   *  fails IMMEDIATELY (no point burning the caller's tool timeout polling
+   *  something that was never submitted — F2904). */
+  const waitTask = async (taskId: string, timeoutMs: number): Promise<any | null> => {
     const deadline = Date.now() + timeoutMs;
+    let first = true;
     for (;;) {
       const task = await detail(taskId);
-      if (task && TERMINAL.has(task.status)) return task;
+      if (!task) {
+        if (first) throw new Error(`no task "${taskId}"`);
+      } else {
+        first = false;
+        if (TERMINAL.has(task.status)) return task;
+      }
       if (Date.now() >= deadline) return null;
       await sleep(1000);
     }
@@ -184,8 +192,12 @@ export function buildTools(bridge: McpBridge) {
       },
       run: async (a: Record<string, any>) => {
         const timeout = Math.min(300_000, Math.max(1000, Number(a.timeout_ms ?? 60_000)));
-        const final = await waitTask(a.task_id, timeout);
-        return final ? asText(final) : asError(`still running after ${timeout} ms — call wait_task again`);
+        try {
+          const final = await waitTask(a.task_id, timeout);
+          return final ? asText(final) : asError(`still running after ${timeout} ms — call wait_task again`);
+        } catch (e) {
+          return asError((e as Error).message);
+        }
       },
     },
     {
