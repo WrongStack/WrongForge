@@ -4,6 +4,22 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Fixed
+- **Dead pre-0.4.3 OAuth endpoints in saved configs self-heal (`F3001`).**
+  An oauth.json created before the platform.claude.com migration keeps
+  beating the code defaults forever (`fileCfg.tokenUrl ?? default`), so
+  every token refresh POSTs to console.anthropic.com/v1/oauth/token, gets
+  404 not_found_error, and the instance limps on Claude-Code session
+  recovery — surfacing as `[auth] refresh HTTP 404` plus `/v1/usage`
+  usage_unavailable 502s (seen live 2026-11-22). loadOAuthConfig now maps
+  the three dead console.anthropic.com URLs to their live
+  platform.claude.com defaults (exact-string, probe-backed —
+  re/notes/findings.md §11): file configs are rewritten in place with other
+  keys preserved, env overrides are used for the run with a warning naming
+  the variable; custom gateway URLs are never touched.
+
 ## [0.4.24] — 2026-11-18
 
 ### Fixed

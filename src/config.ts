@@ -45,7 +45,7 @@ export function loadOAuthConfig(): OAuthConfig | null {
   const clientId = process.env.CLAUDE_OAUTH_CLIENT_ID ?? fileCfg.clientId;
   if (!clientId) return null;
 
-  return {
+  const cfg: OAuthConfig = {
     clientId,
     // Claude Code's own production endpoints (carved from CC 2.1.300,
     // re/notes/findings.md §11): the old console.anthropic.com token URL now
@@ -69,6 +69,70 @@ export function loadOAuthConfig(): OAuthConfig | null {
       fileCfg.scope ??
       "user:inference user:profile",
   };
+  return migrateStaleEndpoints(cfg, fileCfg);
+}
+
+/**
+ * OAuth endpoints that died when Anthropic moved the CLI's OAuth surface to
+ * platform.claude.com (probe table, re/notes/findings.md §11: the
+ * console.anthropic.com token URL answers 404 not_found_error). Installs
+ * that created their oauth.json before v0.4.3 still carry these values, and
+ * a file value always beats the code default — every token refresh then 404s
+ * and the instance limps on Claude-Code session recovery or 502s outright
+ * (seen live 2026-11-22: `[auth] refresh HTTP 404` → /v1/usage
+ * usage_unavailable). The mapping is exact-string and evidence-backed;
+ * anything else (a custom gateway URL) is left untouched.
+ */
+const LEGACY_ENDPOINTS: Readonly<Record<string, string>> = {
+  "https://console.anthropic.com/v1/oauth/token": "https://platform.claude.com/v1/oauth/token",
+  "https://console.anthropic.com/oauth/authorize": "https://platform.claude.com/oauth/authorize",
+  "https://console.anthropic.com/oauth/code/callback": "https://platform.claude.com/oauth/code/callback",
+};
+
+/** The env vars each endpoint field can come from, in precedence order. */
+const ENDPOINT_ENV_VARS: Readonly<Record<"authorizeUrl" | "tokenUrl" | "redirectUri", readonly string[]>> = {
+  authorizeUrl: ["ANTHROPIC_AUTHORIZE_URL", "CLAUDE_OAUTH_AUTHORIZE_URL"],
+  tokenUrl: ["ANTHROPIC_TOKEN_URL", "CLAUDE_OAUTH_TOKEN_URL"],
+  redirectUri: ["CLAUDE_OAUTH_REDIRECT_URI"],
+};
+
+/**
+ * Replace dead legacy endpoints with the live defaults and heal the source:
+ * a stale value in oauth.json is rewritten in place (only the stale fields —
+ * other keys, including a custom clientId, are preserved); a stale env var is
+ * overridden for this process with a warning naming the variable, so an
+ * operator sees which knob to fix. Self-heal, not silent: every migration
+ * logs.
+ */
+function migrateStaleEndpoints(cfg: OAuthConfig, fileCfg: Partial<OAuthConfig>): OAuthConfig {
+  let fileDirty = false;
+  for (const field of ["authorizeUrl", "tokenUrl", "redirectUri"] as const) {
+    const live = LEGACY_ENDPOINTS[cfg[field]];
+    if (!live) continue;
+    cfg[field] = live;
+    const envName = ENDPOINT_ENV_VARS[field].find((n) => process.env[n]);
+    if (envName) {
+      console.warn(
+        `[auth] ${envName} points at the dead ${field} — using ${live} for this run; update or unset the variable to make this permanent`,
+      );
+    } else {
+      fileCfg[field] = live;
+      fileDirty = true;
+      console.warn(
+        `[auth] oauth config carried the dead console.anthropic.com ${field} — rewrote it to ${live}; restart \`serve\` to pick it up`,
+      );
+    }
+  }
+  if (fileDirty) {
+    try {
+      fs.writeFileSync(configFilePath(), JSON.stringify(fileCfg, null, 2) + "\n");
+    } catch (e) {
+      console.warn(
+        `[auth] could not rewrite ${configFilePath()} (${(e as Error).message}) — update the dead endpoint values manually`,
+      );
+    }
+  }
+  return cfg;
 }
 
 export function configHelp(): string {

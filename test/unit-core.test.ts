@@ -339,6 +339,49 @@ async function main(): Promise<void> {
     process.env.CLAUDE_OAUTH_CONFIG = path.join(home1, "missing.json");
     assert(loadOAuthConfig() === null, "loadOAuthConfig: missing file via env path");
     delete process.env.CLAUDE_OAUTH_CONFIG;
+
+    // F3001: pre-v0.4.3 configs carrying the dead console.anthropic.com
+    // endpoints self-heal to the live platform.claude.com defaults — file
+    // values rewritten in place (other keys preserved), env values
+    // overridden for the run. Custom gateway URLs are never touched.
+    const staleFile = path.join(home1, "stale-oauth.json");
+    fs.writeFileSync(
+      staleFile,
+      JSON.stringify({
+        clientId: "legacy-id",
+        scope: "user:inference",
+        authorizeUrl: "https://console.anthropic.com/oauth/authorize",
+        tokenUrl: "https://console.anthropic.com/v1/oauth/token",
+        redirectUri: "https://console.anthropic.com/oauth/code/callback",
+      }),
+    );
+    process.env.CLAUDE_OAUTH_CONFIG = staleFile;
+    const cm = loadOAuthConfig()!;
+    assert(
+      cm.tokenUrl === "https://platform.claude.com/v1/oauth/token" &&
+        cm.authorizeUrl === "https://platform.claude.com/oauth/authorize" &&
+        cm.redirectUri === "https://platform.claude.com/oauth/code/callback",
+      "loadOAuthConfig: all three stale file endpoints migrated to live defaults",
+    );
+    const rewritten = JSON.parse(fs.readFileSync(staleFile, "utf8"));
+    assert(
+      rewritten.tokenUrl === "https://platform.claude.com/v1/oauth/token" &&
+        rewritten.clientId === "legacy-id" &&
+        rewritten.scope === "user:inference",
+      "loadOAuthConfig: stale oauth.json rewritten in place, other keys preserved",
+    );
+    const gwFile = path.join(home1, "gw-oauth.json");
+    const gwUrl = "https://gw.corp.example/v1/oauth/token";
+    fs.writeFileSync(gwFile, JSON.stringify({ clientId: "gw-id", tokenUrl: gwUrl }));
+    process.env.CLAUDE_OAUTH_CONFIG = gwFile;
+    assert(loadOAuthConfig()!.tokenUrl === gwUrl, "loadOAuthConfig: custom gateway endpoint untouched");
+    process.env.ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+    assert(
+      loadOAuthConfig()!.tokenUrl === "https://platform.claude.com/v1/oauth/token",
+      "loadOAuthConfig: stale env endpoint overridden with live default",
+    );
+    delete process.env.ANTHROPIC_TOKEN_URL;
+    delete process.env.CLAUDE_OAUTH_CONFIG;
   }
 
   // ======================================================== paths (legacy migration)
