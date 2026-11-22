@@ -4,7 +4,7 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
-## [Unreleased]
+## [0.4.25] — 2026-11-22
 
 ### Fixed
 - **Dead pre-0.4.3 OAuth endpoints in saved configs self-heal (`F3001`).**
@@ -19,6 +19,19 @@ package.json and the git tags that drive the release workflow.
   re/notes/findings.md §11): file configs are rewritten in place with other
   keys preserved, env overrides are used for the run with a warning naming
   the variable; custom gateway URLs are never touched.
+- **Security lockfile refreshes — npm audit 0/0 on both trees.** webui:
+  vitest 3.2.7 → 4.1.12 closes 5 Dependabot alerts (2 critical in
+  tinypool ≤ 2.1.0 — vitest 3 pinned it with no in-range bump — and 3
+  moderate in vitest/@vitest/mocker); test config unchanged, 31/31 green.
+  Root: hono/body-parser advisories arriving through the MCP SDK tree.
+
+### Added
+- **UsageSection component tests (F2602 follow-up).** The server-side
+  usage-history section moved to its own file
+  (webui/src/components/UsageSection.tsx) so its fetch/render logic is
+  testable without the singleton store; 7 tests cover the days selector,
+  totals/by_day/by_client rendering, error retry, and the empty window
+  (webui suite now 31 tests).
 
 ## [0.4.24] — 2026-11-18
 
