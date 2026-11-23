@@ -348,6 +348,7 @@ async function main(): Promise<void> {
     fs.writeFileSync(
       staleFile,
       JSON.stringify({
+        _comment: "keep me",
         clientId: "legacy-id",
         scope: "user:inference",
         authorizeUrl: "https://console.anthropic.com/oauth/authorize",
@@ -356,18 +357,31 @@ async function main(): Promise<void> {
       }),
     );
     process.env.CLAUDE_OAUTH_CONFIG = staleFile;
+    const warn = console.warn;
+    let warns = 0;
+    console.warn = () => {
+      warns++;
+    };
     const cm = loadOAuthConfig()!;
+    const again = loadOAuthConfig()!;
+    console.warn = warn;
     assert(
       cm.tokenUrl === "https://platform.claude.com/v1/oauth/token" &&
         cm.authorizeUrl === "https://platform.claude.com/oauth/authorize" &&
-        cm.redirectUri === "https://platform.claude.com/oauth/code/callback",
+        cm.redirectUri === "https://platform.claude.com/oauth/code/callback" &&
+        again.tokenUrl === cm.tokenUrl,
       "loadOAuthConfig: all three stale file endpoints migrated to live defaults",
     );
+    // F3002: the config is re-read on every access — one notice per process,
+    // and the rewrite is temp-file + rename, so nothing is left behind
+    assert(warns === 1, "loadOAuthConfig: file migration logs once, not on every config read");
+    assert(!fs.existsSync(`${staleFile}.${process.pid}.tmp`), "loadOAuthConfig: atomic rewrite leaves no temp file");
     const rewritten = JSON.parse(fs.readFileSync(staleFile, "utf8"));
     assert(
       rewritten.tokenUrl === "https://platform.claude.com/v1/oauth/token" &&
         rewritten.clientId === "legacy-id" &&
-        rewritten.scope === "user:inference",
+        rewritten.scope === "user:inference" &&
+        rewritten._comment === "keep me",
       "loadOAuthConfig: stale oauth.json rewritten in place, other keys preserved",
     );
     const gwFile = path.join(home1, "gw-oauth.json");
@@ -376,11 +390,45 @@ async function main(): Promise<void> {
     process.env.CLAUDE_OAUTH_CONFIG = gwFile;
     assert(loadOAuthConfig()!.tokenUrl === gwUrl, "loadOAuthConfig: custom gateway endpoint untouched");
     process.env.ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+    let envWarns = 0;
+    console.warn = () => {
+      envWarns++;
+    };
+    const ce = loadOAuthConfig()!;
+    const ceAgain = loadOAuthConfig()!;
+    console.warn = warn;
     assert(
-      loadOAuthConfig()!.tokenUrl === "https://platform.claude.com/v1/oauth/token",
+      ce.tokenUrl === "https://platform.claude.com/v1/oauth/token" && ceAgain.tokenUrl === ce.tokenUrl,
       "loadOAuthConfig: stale env endpoint overridden with live default",
     );
+    assert(envWarns === 1, "loadOAuthConfig: stale env endpoint warns once per process");
     delete process.env.ANTHROPIC_TOKEN_URL;
+
+    // F3002: a rewrite that cannot succeed must leave the operator's config
+    // byte-identical (a truncated oauth.json loses the clientId = no OAuth at
+    // all), keep the healed value in memory, and give up after one attempt.
+    // The temp path is pre-occupied by a directory so the write must fail.
+    const trappedFile = path.join(home1, "trapped-oauth.json");
+    const staleJson = JSON.stringify({ clientId: "legacy-id", tokenUrl: "https://console.anthropic.com/v1/oauth/token" });
+    fs.writeFileSync(trappedFile, staleJson);
+    const trap = `${trappedFile}.${process.pid}.tmp`;
+    fs.mkdirSync(trap);
+    process.env.CLAUDE_OAUTH_CONFIG = trappedFile;
+    let trappedWarns = 0;
+    console.warn = () => {
+      trappedWarns++;
+    };
+    const ct = loadOAuthConfig()!;
+    loadOAuthConfig();
+    console.warn = warn;
+    assert(ct.tokenUrl === "https://platform.claude.com/v1/oauth/token", "loadOAuthConfig: healed in memory even when the rewrite fails");
+    assert(fs.readFileSync(trappedFile, "utf8") === staleJson, "loadOAuthConfig: original config untouched when the rewrite fails");
+    assert(trappedWarns === 1, "loadOAuthConfig: failed rewrite warns once, then stops retrying");
+    try {
+      fs.rmSync(trap, { recursive: true });
+    } catch {
+      /* an indexer may still hold the fresh directory; the exit handler removes the tree */
+    }
     delete process.env.CLAUDE_OAUTH_CONFIG;
   }
 

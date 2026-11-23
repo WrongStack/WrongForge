@@ -89,12 +89,22 @@ const LEGACY_ENDPOINTS: Readonly<Record<string, string>> = {
   "https://console.anthropic.com/oauth/code/callback": "https://platform.claude.com/oauth/code/callback",
 };
 
+type EndpointField = "authorizeUrl" | "tokenUrl" | "redirectUri";
+
+const ENDPOINT_FIELDS: readonly EndpointField[] = ["authorizeUrl", "tokenUrl", "redirectUri"];
+
 /** The env vars each endpoint field can come from, in precedence order. */
-const ENDPOINT_ENV_VARS: Readonly<Record<"authorizeUrl" | "tokenUrl" | "redirectUri", readonly string[]>> = {
+const ENDPOINT_ENV_VARS: Readonly<Record<EndpointField, readonly string[]>> = {
   authorizeUrl: ["ANTHROPIC_AUTHORIZE_URL", "CLAUDE_OAUTH_AUTHORIZE_URL"],
   tokenUrl: ["ANTHROPIC_TOKEN_URL", "CLAUDE_OAUTH_TOKEN_URL"],
   redirectUri: ["CLAUDE_OAUTH_REDIRECT_URI"],
 };
+
+/** Stale env overrides already reported by this process. */
+const reportedMigrations = new Set<string>();
+
+/** Set once an in-place oauth.json rewrite failed (see migrateStaleEndpoints). */
+let fileRewriteFailed = false;
 
 /**
  * Replace dead legacy endpoints with the live defaults and heal the source:
@@ -102,37 +112,71 @@ const ENDPOINT_ENV_VARS: Readonly<Record<"authorizeUrl" | "tokenUrl" | "redirect
  * other keys, including a custom clientId, are preserved); a stale env var is
  * overridden for this process with a warning naming the variable, so an
  * operator sees which knob to fix. Self-heal, not silent: every migration
- * logs.
+ * logs — once per process. The config is re-read on EVERY access
+ * (ClaudeOAuth.config is a getter, not a cache), so a source this process
+ * cannot heal (a stale env var, an unwritable file) would otherwise warn on
+ * each read.
  */
 function migrateStaleEndpoints(cfg: OAuthConfig, fileCfg: Partial<OAuthConfig>): OAuthConfig {
-  let fileDirty = false;
-  for (const field of ["authorizeUrl", "tokenUrl", "redirectUri"] as const) {
+  const staleFile: EndpointField[] = [];
+  for (const field of ENDPOINT_FIELDS) {
     const live = LEGACY_ENDPOINTS[cfg[field]];
     if (!live) continue;
     cfg[field] = live;
     const envName = ENDPOINT_ENV_VARS[field].find((n) => process.env[n]);
-    if (envName) {
+    if (!envName) {
+      fileCfg[field] = live;
+      staleFile.push(field);
+    } else if (!reportedMigrations.has(envName)) {
+      reportedMigrations.add(envName);
       console.warn(
         `[auth] ${envName} points at the dead ${field} — using ${live} for this run; update or unset the variable to make this permanent`,
       );
-    } else {
-      fileCfg[field] = live;
-      fileDirty = true;
-      console.warn(
-        `[auth] oauth config carried the dead console.anthropic.com ${field} — rewrote it to ${live}; restart \`serve\` to pick it up`,
-      );
     }
   }
-  if (fileDirty) {
+  // One rewrite attempt per process: after a failure the healed value is
+  // still in effect here, and retrying on every config read would only repeat
+  // the error. The next process to start tries again.
+  if (staleFile.length && !fileRewriteFailed) {
+    const file = configFilePath();
+    const fields = staleFile.join(", ");
     try {
-      fs.writeFileSync(configFilePath(), JSON.stringify(fileCfg, null, 2) + "\n");
-    } catch (e) {
+      rewriteConfigFile(file, fileCfg);
       console.warn(
-        `[auth] could not rewrite ${configFilePath()} (${(e as Error).message}) — update the dead endpoint values manually`,
+        `[auth] oauth config carried the dead console.anthropic.com ${fields} — rewrote it to platform.claude.com (in effect immediately; no restart needed)`,
+      );
+    } catch (e) {
+      fileRewriteFailed = true;
+      console.warn(
+        `[auth] oauth config still carries the dead console.anthropic.com ${fields} and could not be rewritten (${(e as Error).message}) — using platform.claude.com for this process; fix ${file} to make it permanent`,
       );
     }
   }
   return cfg;
+}
+
+/**
+ * Atomic config rewrite: write a sibling temp file, then rename it over the
+ * config. A crash or full disk mid-write must never leave the operator's
+ * oauth.json truncated — a lost clientId means no OAuth at all, a worse state
+ * than the dead endpoints this heals. When either step fails the original is
+ * left untouched. The temp name carries the pid so two processes healing the
+ * same file (a running `serve` plus a cron `wrongforge refresh`) never write
+ * through the same file.
+ */
+function rewriteConfigFile(file: string, fileCfg: Partial<OAuthConfig>): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(fileCfg, null, 2) + "\n");
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* never created, or not a regular file */
+    }
+    throw e;
+  }
 }
 
 export function configHelp(): string {

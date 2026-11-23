@@ -6,6 +6,19 @@ package.json and the git tags that drive the release workflow.
 
 ## [Unreleased]
 
+### Fixed
+- **Stale-endpoint self-heal hardened (`F3002`).** Follow-up to F3001
+  (0.4.25), found on re-read: the OAuth config is re-read on **every**
+  access (`ClaudeOAuth.config` is a getter, not a cache), so a stale env
+  override — or a config file that could not be rewritten — logged its
+  warning on each read: now once per process. The in-place oauth.json
+  rewrite used a plain write, which a crash or a full disk could leave
+  truncated (a lost clientId means no OAuth at all): it now writes a
+  pid-suffixed temp file and renames it over the config, leaving the
+  original byte-identical when that fails (one attempt per process). The
+  notice no longer tells operators to restart `serve` — the healed value
+  is in effect immediately.
+
 ### Changed
 - **@anthropic-ai/sdk 1.8.0 → 1.12.0.** Same-major dependency refresh:
   large-event streaming performance, ANTHROPIC_CUSTOM_HEADERS now merges
