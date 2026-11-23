@@ -4,6 +4,17 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Changed
+- **@anthropic-ai/sdk 1.8.0 → 1.12.0.** Same-major dependency refresh:
+  large-event streaming performance, ANTHROPIC_CUSTOM_HEADERS now merges
+  correctly with Headers/pair entries in defaultHeaders, stricter
+  non-JSON rejection for streamed tool input, and the new backend error
+  codes (image_dimensions_too_large et al.) — surfaced verbatim as
+  before. OAuth-header costume checks, proxy CC-costume, and the full
+  suite all assert green on 1.12.0.
+
 ## [0.4.25] — 2026-11-22
 
 ### Fixed
