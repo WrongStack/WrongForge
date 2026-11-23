@@ -7,6 +7,20 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Fixed
+- **A submit whose image files cannot be written no longer leaves a
+  phantom task (`F3101`).** The record used to be stored as `queued`
+  before its attachments were persisted, so a failed write (a full disk, a
+  locked file) answered `500 internal_error` while leaving behind a task
+  that was never enqueued: listed as `queued` forever, not cancellable
+  (`500` on cancel), and handed back as `deduplicated` to a retry with the
+  same `task_id` — an orchestrator's retry then waited on a task that
+  could not run until the server restarted. Attachments are now persisted
+  before the session and the record exist; a failed write returns
+  `500 image_write_failed` (the errno code is named, nothing is queued)
+  and leaves no task, no session and no partial image files. Every refusal
+  is still decided before anything is written, so a refused submit cannot
+  be used to fill the server's disk. The record is also written once, with
+  its image refs, instead of twice.
 - **Stale-endpoint self-heal hardened (`F3002`).** Follow-up to F3001
   (0.4.25), found on re-read: the OAuth config is re-read on **every**
   access (`ClaudeOAuth.config` is a getter, not a cache), so a stale env

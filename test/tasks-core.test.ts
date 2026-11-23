@@ -645,6 +645,86 @@ async function main(): Promise<void> {
     await h4.close();
   }
 
+  // =============================================================== image write failure (F3101)
+  {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const h5 = await startHarness({ defaultWorkdir: undefined });
+    h5.fake.script = () => ({ kind: "text", text: "ok", usage: { input: 1, output: 1 } });
+    const d = h5.mkdir("imgfail");
+
+    // Deterministic write failure without a DI seam: the task id is the
+    // client's, so the SECOND image's target path is pre-occupied by a
+    // directory — image 00 is written, image 01 throws. That is a disk
+    // filling up mid-loop. Before F3101 this left a `queued` record that was
+    // never enqueued: listed as queued forever, not cancellable, and handed
+    // back as "deduplicated" to a retry with the same task_id.
+    const id = "tsk_imgfail";
+    const taskDir = path.join(h5.home, "tasks", id);
+    fs.mkdirSync(path.join(taskDir, "images", "01.png"), { recursive: true });
+    const body = {
+      task_id: id, workdir: d, prompt: "x", session_id: "ses_imgfail",
+      images: Array.from({ length: 2 }, () => ({ media_type: "image/png", data: png })),
+    };
+    const res = await h5.api("POST", "/v1/tasks", body);
+    assert(res.status === 500 && res.body.error?.code === "image_write_failed", `a failed image write is a typed error (got ${res.status} ${res.body.error?.code})`);
+    assert(/tsk_imgfail/.test(res.body.error.message) && /not queued/.test(res.body.error.message), "the error names the task and states that nothing was queued");
+    assert(!fs.existsSync(taskDir), "a failed image write leaves no task dir behind (no partial image files)");
+    const got = await h5.api("GET", `/v1/tasks/${id}`);
+    assert(got.status === 404, "a submit whose images could not be persisted never became a task");
+    assert((await h5.api("GET", "/v1/sessions")).body.sessions.length === 0, "...and created no session");
+
+    // the same task_id submits normally once the obstruction is gone — the
+    // idempotent retry is not answered with a task that will never run
+    const again = await h5.api("POST", "/v1/tasks", body);
+    assert(again.status === 202 && again.body.deduplicated === false, `retry after the failure is a real submit (got ${again.status}, deduplicated=${again.body.deduplicated})`);
+    assert(again.body.task.images?.length === 2, "the retry's record carries both image refs");
+    let final: any = { status: "timeout" };
+    for (let i = 0; i < 200; i++) {
+      const r = await h5.api("GET", `/v1/tasks/${id}`);
+      if (["completed", "failed", "cancelled", "timed_out"].includes(r.body.task?.status)) {
+        final = r.body.task;
+        break;
+      }
+      await sleep(50);
+    }
+    assert(final.status === "completed", `the retried task runs to completion (got ${final.status})`);
+    assert(
+      fs.existsSync(path.join(taskDir, "images", "00.png")) && fs.existsSync(path.join(taskDir, "images", "01.png")),
+      "both images are persisted for the retried task",
+    );
+    assert((await h5.api("GET", "/v1/sessions")).body.sessions.length === 1, "exactly one session exists after the failed attempt and its retry");
+
+    await h5.close();
+  }
+
+  // =============================================================== a refused submit writes no attachments (F3101)
+  {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const KEY_A = "wf_test_client_a_key_0123456789";
+    const KEY_B = "wf_test_client_b_key_0123456789";
+    const h6 = await startHarness({ defaultWorkdir: undefined, clientKeys: new Map([[KEY_A, "stackA"], [KEY_B, "stackB"]]) });
+    const d = h6.mkdir("img403");
+
+    // Attachments are persisted before the record, so every refusal must be
+    // decided before them: stackA owns the session, stackB submits into it
+    // with images -> 403, and no image dir may be left on the server's disk
+    // (a refused submit must not be a way to fill it).
+    const own = await h6.api("POST", "/v1/tasks", { task_id: "tsk_owner", workdir: d, prompt: "x", session_id: "ses_owned" }, { Authorization: `Bearer ${KEY_A}` });
+    assert(own.status === 202, `the owner's submit is accepted (got ${own.status})`);
+    const refused = await h6.api(
+      "POST",
+      "/v1/tasks",
+      { task_id: "tsk_trespass", workdir: d, prompt: "x", session_id: "ses_owned", images: [{ media_type: "image/png", data: png }] },
+      { Authorization: `Bearer ${KEY_B}` },
+    );
+    assert(refused.status === 403 && refused.body.error?.code === "session_not_owned", `a foreign session is refused (got ${refused.status})`);
+    assert(!fs.existsSync(path.join(h6.home, "tasks", "tsk_trespass")), "a refused submit writes no attachments");
+    const trespass = await h6.api("GET", "/v1/tasks/tsk_trespass", undefined, { Authorization: `Bearer ${KEY_B}` });
+    assert(trespass.status === 404, "...and no task");
+
+    await h6.close();
+  }
+
   await h3.close();
   await fake.close();
   console.log("TASKS CORE TESTS PASSED ✓ (auth, validation, lifecycle, events, idempotency, wait/stream/replay/long-poll, sessions, cache prefix stability, restart continuity, recovery, maintenance, dashboard, event-log integrity, terminal-event delivery)");

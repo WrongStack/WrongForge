@@ -88,7 +88,7 @@ Submits a task. Body (JSON object):
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `prompt` | string | **required** | The instruction. Non-empty, ≤ 200 000 chars. |
-| `images` | array of `{ media_type, data }` | – | Image attachments the agent SEES in its first message. `media_type`: `"image/png" \| "image/jpeg" \| "image/gif" \| "image/webp"`; `data`: base64, ≤ 5 MB decoded each, ≤ 5 images. Magic bytes must match the declared type. Stored as files in the task dir; the task document carries only metadata refs. Invalid images → `400 invalid_request`. |
+| `images` | array of `{ media_type, data }` | – | Image attachments the agent SEES in its first message. `media_type`: `"image/png" \| "image/jpeg" \| "image/gif" \| "image/webp"`; `data`: base64, ≤ 5 MB decoded each, ≤ 5 images. Magic bytes must match the declared type. Stored as files in the task dir; the task document carries only metadata refs. Invalid images → `400 invalid_request`. If the files cannot be written on the server (a full disk), the submit fails with `500 image_write_failed` and nothing is queued. |
 | `task_id` | string | generated `tsk_…` | Your own id = **idempotency key**. `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. |
 | `session_id` | string | new `ses_…` | Continue this session; created if it does not exist. Same id pattern as `task_id`. |
 | `model` | string | server default (`CLAUDE_MODEL`, `claude-sonnet-5-5`) | `[A-Za-z0-9][A-Za-z0-9._:-]{0,99}`. |
@@ -528,7 +528,7 @@ Errors have the shape `{ "error": { "code": "…", "message": "…" } }`.
 | 409 | `task_id_conflict`, `session_exists`, `session_busy`, `server_disabled` (MCP) |
 | 413 | `body_too_large` |
 | 429 | `queue_full` (a named client at its `WRONGFORGE_MAX_QUEUED_PER_CLIENT` queued-task cap; cancel queued tasks or wait for slots) |
-| 500 | `internal_error` |
+| 500 | `internal_error`, `image_write_failed` (the submit's image attachments could not be persisted — a full disk or a locked file; nothing was queued, so a retry with the same `task_id` is safe) |
 | 502 | `usage_unavailable`, `compaction_failed`, MCP connection errors (`mcp_unavailable`, `mcp_error`) |
 | 503 | `not_signed_in`, `shutting_down` |
 

@@ -448,24 +448,70 @@ export class TaskManager {
     // creator's client: a second orchestrator pointing at the same
     // session_id would silently merge conversation histories, so a foreign
     // client is refused instead (sessions that predate client keys belong to
-    // the default key).
+    // the default key). Ownership is settled before anything is written for
+    // the task, and a session that has to be created is created after the
+    // attachments: neither a refusal nor a failed image write may leave the
+    // other's state behind.
     let sessionId = req.session_id;
     let sessionCreated = false;
     if (!sessionId) {
       sessionId = `ses_${crypto.randomBytes(8).toString("hex")}`;
     }
-    if (o.sessions.exists(sessionId)) {
-      const owner = o.sessions.meta(sessionId)?.owner ?? "default";
-      if (owner !== client) {
-        throw new SubmitError(403, "session_not_owned", `session "${sessionId}" belongs to another client`);
+    const sessionExists = o.sessions.exists(sessionId);
+    if (sessionExists && (o.sessions.meta(sessionId)?.owner ?? "default") !== client) {
+      throw new SubmitError(403, "session_not_owned", `session "${sessionId}" belongs to another client`);
+    }
+
+    // ---- images: validated already; persist the decoded bytes as files in
+    // the task dir and keep only the references on the record — megabytes of
+    // base64 never land in task.json, the audit trail or the logs.
+    //
+    // Written BEFORE the record exists: a submit whose attachments cannot be
+    // persisted must not become a task. The record used to be stored first,
+    // so a failed write (a full disk, a locked file) left a `queued` record
+    // that was never enqueued — listed as queued forever, not cancellable,
+    // and handed back as `deduplicated` to a retry with the same task_id
+    // (F3101).
+    const id = req.task_id ?? `tsk_${crypto.randomBytes(8).toString("hex")}`;
+    const taskDir = path.join(o.store.dir, id);
+    // Nothing of a submit that did not become a task may survive it — a
+    // failing disk must not also collect orphaned image files.
+    const discardAttachments = (): void => {
+      if (!validatedImages.length) return;
+      try {
+        fs.rmSync(taskDir, { recursive: true, force: true });
+      } catch (e) {
+        o.logger.warn("task.attachments_orphaned", { task_id: id, dir: taskDir, error: e });
       }
-    } else {
-      o.sessions.create(sessionId, new Date(), client);
-      sessionCreated = true;
+    };
+    let imageRefs: TaskRecord["images"];
+    if (validatedImages.length) {
+      try {
+        imageRefs = writeTaskImages(taskDir, validatedImages);
+      } catch (e) {
+        discardAttachments();
+        o.logger.error("task.image_write_failed", {
+          task_id: id, client, images: validatedImages.length, error: e,
+        });
+        throw new SubmitError(
+          500,
+          "image_write_failed",
+          `could not persist the image attachments for task "${id}" (${(e as NodeJS.ErrnoException).code ?? "error"}) — the task was not queued; retry with the same task_id once this is resolved`,
+        );
+      }
+    }
+
+    if (!sessionExists) {
+      try {
+        o.sessions.create(sessionId, new Date(), client);
+        sessionCreated = true;
+      } catch (e) {
+        discardAttachments();
+        throw e;
+      }
     }
 
     // ---- record
-    const id = req.task_id ?? `tsk_${crypto.randomBytes(8).toString("hex")}`;
     const now = new Date().toISOString();
     const rec: TaskRecord = {
       id,
@@ -484,6 +530,7 @@ export class TaskManager {
       env_keys: Object.keys(env),
       ...(req.system_append ? { system_append: req.system_append } : {}),
       ...(req.context !== undefined ? { context: req.context } : {}),
+      ...(imageRefs ? { images: imageRefs } : {}),
       ...(req.callback ? { callback: { url: req.callback.url, events: req.callback.events }, callback_stats: { delivered: 0, failed: 0 } } : {}),
       ...(gateway ? { gateway: describeGateway(gateway) } : {}),
       ...(mcpSelection ? { mcp: mcpSelection } : {}),
@@ -492,14 +539,11 @@ export class TaskManager {
       created_at: now,
       progress: { steps: 0, tool_calls: 0, last_event_seq: 0, last_activity_at: now },
     };
-    o.store.put(rec);
-
-    // ---- images: validated already; persist the decoded bytes as files in
-    // the task dir and keep only the references on the record — megabytes of
-    // base64 never land in task.json, the audit trail or the logs.
-    if (validatedImages.length) {
-      rec.images = writeTaskImages(path.join(o.store.dir, id), validatedImages);
+    try {
       o.store.put(rec);
+    } catch (e) {
+      discardAttachments();
+      throw e;
     }
 
     o.logger.info("task.submitted", {
