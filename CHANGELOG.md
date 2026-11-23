@@ -4,7 +4,7 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
-## [Unreleased]
+## [0.4.26] — 2026-11-24
 
 ### Fixed
 - **A submit whose image files cannot be written no longer leaves a
