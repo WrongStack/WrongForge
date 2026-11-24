@@ -26,6 +26,11 @@ const run = (task_id: string, prompt: string): TaskEvent[] => [
   ev(task_id, "agent.text", { text: prompt }),
 ];
 
+/** One applyEvent per event: a single call with the whole array is one bogus event that creates no task. */
+const seed = (events: TaskEvent[]): void => {
+  for (const e of events) store.applyEvent(e);
+};
+
 beforeEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -41,22 +46,27 @@ describe("TaskRail", () => {
   });
 
   it("shows the cancel button for queued and running tasks", () => {
-    store.applyEvent(run("trun", "running prompt"));
+    seed(run("trun", "running prompt"));
     store.applyEvent(ev("tq2", "task.queued", { position: 0, waiting_for: "capacity" }));
     render(<TaskRail selectedId={null} onSelect={() => undefined} />);
-    expect(screen.getAllByTitle("cancel this task").length).toBe(2);
+    for (const id of ["trun", "tq2"]) {
+      expect(screen.getByText(id).closest(".rail-row")!.querySelector('button[title="cancel this task"]')).toBeTruthy();
+    }
   });
 
   it("the active filter keeps queued/running and hides ended tasks", () => {
-    store.applyEvent(run("trun2", "running prompt"));
+    seed(run("trun2", "running prompt"));
     store.applyEvent(ev("tend", "task.queued"));
     store.applyEvent(ev("tend", "task.started"));
     store.applyEvent(ev("tend", "task.completed", { result: {} }));
     render(<TaskRail selectedId={null} onSelect={() => undefined} />);
+    // scoped to this test's tasks — the singleton store keeps the earlier ones
     fireEvent.click(screen.getByText("active"));
-    expect(document.querySelectorAll(".rail-row").length).toBe(2);
+    expect(screen.getByText("trun2")).toBeTruthy();
+    expect(screen.queryByText("tend")).toBeNull();
     fireEvent.click(screen.getByText("ended"));
-    expect(document.querySelectorAll(".rail-row").length).toBe(1);
+    expect(screen.getByText("tend")).toBeTruthy();
+    expect(screen.queryByText("trun2")).toBeNull();
   });
 
   it("the cancel button routes through store.cancelTask", async () => {

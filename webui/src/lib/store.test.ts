@@ -19,7 +19,7 @@ const ev = (task_id: string, type: TaskEvent["type"], data: Record<string, unkno
   data,
 });
 
-const queued = (id: string, waiting = "capacity"): TaskEvent =>
+const queued = (id: string, waiting: string | null = "capacity"): TaskEvent =>
   ev(id, "task.queued", { position: 0, waiting_for: waiting });
 
 describe("store fold: queue_wait lifecycle", () => {

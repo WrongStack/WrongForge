@@ -7,12 +7,30 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Fixed
+- **The Insights tab crashed as soon as any task existed (`F3103`).**
+  Introduced in 0.4.25, when the usage-history section was split into its
+  own file: three helpers the view still uses (`ModelRow`,
+  `STATUS_COLORS`, `avgDuration`) were dropped with it, so opening
+  Insights with at least one task threw `ReferenceError: avgDuration is
+  not defined` and took the dashboard down with it. A fresh dashboard
+  with no tasks rendered the empty state, which is why nothing looked
+  wrong. Restored verbatim from the pre-split revision.
 - **A tool result that arrives without its tool call showed as running
   forever (`F3102`).** When the dashboard reconnects mid-call and the
   backfill resumes after `tool.started`, the Inspector folded the lone
   `tool.finished` / `tool.failed` as a bare call: the card read "running"
   and showed no output. It now reads done / failed with its output or
   error.
+
+### Added
+- **The webui is typechecked in CI (`F3103` follow-up).** The new
+  `npm --prefix webui run typecheck` script runs before the webui tests
+  in the release workflow — the vite build alone does not typecheck,
+  which is how F3103 reached two releases. The Insights view now has
+  tests that render it with tasks (webui suite: 45). Two TaskRail tests
+  had been passing by accident: they seeded a whole event array as one
+  event and asserted counts that leftover state happened to satisfy; they
+  now seed each event and assert per task.
 
 ## [0.4.26] — 2026-11-24
 

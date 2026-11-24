@@ -6,12 +6,39 @@
  * live window (and the per-client breakdown a named-key page cannot see).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api.js";
+import { useMemo } from "react";
 import { useStore } from "../lib/store.js";
 import { Bar, Chip } from "./bits.js";
 import { UsageSection } from "./UsageSection.js";
 import { fmtTokens } from "../lib/types.js";
+
+interface ModelRow {
+  model: string;
+  tasks: number;
+  completed: number;
+  failed: number;
+  in: number;
+  out: number;
+  steps: number;
+  toolCalls: number;
+  durations: number[];
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  completed: "var(--blue)",
+  running: "var(--green)",
+  queued: "var(--amber)",
+  failed: "var(--red)",
+  cancelled: "var(--fg-faint)",
+  timed_out: "var(--orange)",
+};
+
+function avgDuration(list: number[]): string {
+  const done = list.filter((d) => d > 0);
+  if (!done.length) return "—";
+  const a = done.reduce((s, d) => s + d, 0) / done.length / 1000;
+  return a >= 60 ? `${Math.round(a / 60)}m` : `${a.toFixed(a < 10 ? 1 : 0)}s`;
+}
 
 export function InsightsView() {
   const key = useStore((s) => s.key);
