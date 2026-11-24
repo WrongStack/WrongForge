@@ -261,14 +261,18 @@ function foldSteps(events: TaskEvent[]): { pre: TaskEvent[]; steps: StepBlock[];
       }
       case "tool.finished": {
         const entry = openTool.get(String(ev.data.tool_call_id ?? ""));
+        // A result whose tool.started never reached this page (the dashboard
+        // reconnected mid-call and the backfill resumed after it) carries the
+        // name and the output itself: it stays a finished card of its own. As
+        // a bare call it read as "running" forever and showed no output.
         if (entry) entry.result = ev;
-        else cur.tools.push({ call: ev });
+        else cur.tools.push({ call: ev, result: ev });
         break;
       }
       case "tool.failed": {
         const entry = openTool.get(String(ev.data.tool_call_id ?? ""));
         if (entry) entry.error = ev;
-        else cur.tools.push({ call: ev });
+        else cur.tools.push({ call: ev, error: ev });
         break;
       }
       case "step.finished":

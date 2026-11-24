@@ -4,6 +4,16 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Fixed
+- **A tool result that arrives without its tool call showed as running
+  forever (`F3102`).** When the dashboard reconnects mid-call and the
+  backfill resumes after `tool.started`, the Inspector folded the lone
+  `tool.finished` / `tool.failed` as a bare call: the card read "running"
+  and showed no output. It now reads done / failed with its output or
+  error.
+
 ## [0.4.26] — 2026-11-24
 
 ### Fixed
