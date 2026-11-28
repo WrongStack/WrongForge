@@ -68,18 +68,21 @@ export function SessionsView() {
 
 function MessagesDialog({ session, onClose }: { session: SessionMeta | null; onClose: () => void }) {
   const [messages, setMessages] = useState<AgentMessage[] | null>(null);
+  // Set when the fetch failed: a failed fetch is not an empty session.
+  const [error, setError] = useState<string | null>(null);
   const sid = session?.id ?? null;
 
   useEffect(() => {
     setMessages(null);
+    setError(null);
     if (!sid) return;
     let alive = true;
     void (async () => {
       try {
         const res = await api<{ messages: AgentMessage[] }>(`/v1/sessions/${sid}/messages?limit=1000`, store.getState().key);
         if (alive) setMessages(res.messages);
-      } catch {
-        if (alive) setMessages([]);
+      } catch (e) {
+        if (alive) setError((e as Error).message || "the server did not answer");
       }
     })();
     return () => {
@@ -109,7 +112,8 @@ function MessagesDialog({ session, onClose }: { session: SessionMeta | null; onC
             </div>
           )}
           <div className="session-messages">
-            {messages === null && <div className="empty">loading messages…</div>}
+            {error && <div className="task-error">could not load messages: {error}</div>}
+            {messages === null && !error && <div className="empty">loading messages…</div>}
             {messages?.length === 0 && <div className="empty">no stored messages</div>}
             {messages?.map((m, i) => (
               <MessageRow key={i} m={m} />

@@ -4,6 +4,14 @@ Notable changes to WrongForge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match
 package.json and the git tags that drive the release workflow.
 
+## [Unreleased]
+
+### Fixed
+- **The Sessions dialog no longer reports a failed fetch as an empty session
+  (`F3104`).** When `GET /v1/sessions/{id}/messages` failed, the dialog said
+  "no stored messages"; it now says "could not load messages: …" with the
+  server's error.
+
 ## [0.4.27] — 2026-11-24
 
 ### Fixed
