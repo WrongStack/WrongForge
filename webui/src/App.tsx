@@ -18,6 +18,7 @@ import { SessionsView } from "./components/SessionsView.js";
 import { InsightsView } from "./components/InsightsView.js";
 import { InfoView } from "./components/InfoView.js";
 import { ProxyView } from "./components/ProxyView.js";
+import { ViewBoundary } from "./components/ViewBoundary.js";
 
 export default function App() {
   const conn = useStore((s) => s.conn);
@@ -80,24 +81,40 @@ export default function App() {
                 Proxy
               </Tabs.Trigger>
             </Tabs.List>
+            {/* every pane and tab in its own boundary: a view that throws during
+                render must not take the rest of the dashboard down (F3103) */}
             <Tabs.Content value="overview" className="tabs-content">
               <div className="overview">
-                <TaskRail selectedId={openTaskId} onSelect={setOpenTaskId} />
-                <LiveFeed onOpenTask={pickTask} />
-                <Inspector taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
+                <ViewBoundary label="tasks">
+                  <TaskRail selectedId={openTaskId} onSelect={setOpenTaskId} />
+                </ViewBoundary>
+                <ViewBoundary label="live feed">
+                  <LiveFeed onOpenTask={pickTask} />
+                </ViewBoundary>
+                <ViewBoundary label="inspector">
+                  <Inspector taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
+                </ViewBoundary>
               </div>
             </Tabs.Content>
             <Tabs.Content value="insights" className="tabs-content">
-              <InsightsView />
+              <ViewBoundary label="Insights">
+                <InsightsView />
+              </ViewBoundary>
             </Tabs.Content>
             <Tabs.Content value="sessions" className="tabs-content">
-              <SessionsView />
+              <ViewBoundary label="Sessions">
+                <SessionsView />
+              </ViewBoundary>
             </Tabs.Content>
             <Tabs.Content value="info" className="tabs-content">
-              <InfoView />
+              <ViewBoundary label="Info">
+                <InfoView />
+              </ViewBoundary>
             </Tabs.Content>
             <Tabs.Content value="proxy" className="tabs-content">
-              <ProxyView />
+              <ViewBoundary label="Proxy">
+                <ProxyView />
+              </ViewBoundary>
             </Tabs.Content>
           </Tabs.Root>
         )}

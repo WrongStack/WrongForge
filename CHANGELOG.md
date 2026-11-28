@@ -7,6 +7,13 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Fixed
+- **A view that crashes no longer takes the whole dashboard down (`F3106`).**
+  The shell had no error boundary, so a throw during render unmounted the
+  root — that is how one missing helper blanked every tab in 0.4.25 and
+  0.4.26 (F3103). Each pane of the overview and each secondary tab now sits
+  in its own boundary: the crashed view is replaced by a card naming the
+  view and the error, with a "try again" button, while the top bar and
+  every other view keep working.
 - **Half of the task event types no longer flow through the live feed as a
   bare type label (`F3105`).** `task.cancelled` (and its reason),
   `task.timed_out`, `task.queued` / `task.queue_update` (queue position and
