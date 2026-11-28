@@ -22,7 +22,18 @@ export function KeyGate({ open, hint, onDismiss }: { open: boolean; hint?: strin
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="dialog-content dialog-key" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <Dialog.Title className="dialog-title">Connect to WrongForge</Dialog.Title>
+          {/* a close button only where there is something to dismiss into: the
+              locked state has none; "change key" on the banner does (F3107) */}
+          <div className="key-head">
+            <Dialog.Title className="dialog-title">Connect to WrongForge</Dialog.Title>
+            {onDismiss && (
+              <Dialog.Close asChild>
+                <button className="dialog-close" aria-label="close">
+                  ✕
+                </button>
+              </Dialog.Close>
+            )}
+          </div>
           <Dialog.Description className="dialog-desc">
             The dashboard talks to the local API on this origin. Paste the server key
             <code> npm run serve</code> printed — it is stored in this browser only.

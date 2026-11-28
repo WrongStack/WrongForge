@@ -26,6 +26,22 @@ package.json and the git tags that drive the release workflow.
   (`F3104`).** When `GET /v1/sessions/{id}/messages` failed, the dialog said
   "no stored messages"; it now says "could not load messages: …" with the
   server's error.
+- **The key dialog opened from "change key" can be closed (`F3107`).** It
+  had no close button — Escape or clicking outside were the only ways out.
+  It now has one whenever there is something to dismiss into; the locked
+  state (no known key) is unchanged and still offers no way out.
+
+### Added
+- **Every dashboard view is now rendered with data in its tests (`F3103`
+  follow-up).** A test-only harness (`webui/src/lib/storeHarness.ts`)
+  connects the store through its own connect path and SSE frame handler,
+  so `http.request`, `proxy.call` and task frames travel as they do from
+  the server. New suites: the shell (tabs, a feed row selecting its task
+  in the inspector, the lost-stream banner, the action toast), the shell
+  with a view that crashes, the live feed (the summary of every event
+  type, filters, heartbeats, the quiet strip, the test actions), the top
+  bar, the Proxy tab, the Sessions tab, the Info tab. Webui suite: 45 →
+  86 tests.
 
 ## [0.4.27] — 2026-11-24
 

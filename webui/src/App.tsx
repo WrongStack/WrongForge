@@ -132,7 +132,9 @@ export default function App() {
             </button>
           </div>
         )}
-        <KeyGate open={locked || forceGate} hint={authError} onDismiss={() => setForceGate(false)} />
+        {/* dismissable only while the server's key is known: locked, there is
+            nowhere to dismiss to and the gate stays */}
+        <KeyGate open={locked || forceGate} hint={authError} onDismiss={locked ? undefined : () => setForceGate(false)} />
       </div>
     </Tooltip.Provider>
   );

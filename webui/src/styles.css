@@ -1094,6 +1094,14 @@ body {
   gap: 14px;
 }
 
+/* the key dialog's title row: holds the close button when it can be dismissed */
+.key-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .dialog-title {
   font-size: 14px;
   font-weight: 650;
