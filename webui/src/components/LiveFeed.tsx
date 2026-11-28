@@ -13,6 +13,7 @@ import { shortId } from "../lib/types.js";
 const TYPE_TONE: Record<string, string> = {
   "http.request": "ev-http",
   "task.queued": "ev-task",
+  "task.queue_update": "ev-task",
   "task.started": "ev-task",
   "task.completed": "ev-done",
   "task.failed": "ev-error",
@@ -32,8 +33,21 @@ const TYPE_TONE: Record<string, string> = {
   "context.cleared": "ev-warn",
   "session.compacting": "ev-dim",
   "session.compacted": "ev-dim",
+  "session.cache_mode_locked": "ev-warn",
 };
 
+/** `task.queued` / `task.queue_update`: a 0-based position, and why the task is not running (null = it starts now). */
+function queueSummary(data: Record<string, unknown>): string {
+  return `#${Number(data.position ?? 0) + 1}${data.waiting_for ? ` · waiting: ${data.waiting_for}` : " · starting now"}${data.priority === "low" ? " · low priority" : ""}`;
+}
+
+/**
+ * One line per event type (src/tasks/types.ts TaskEventType). The queue
+ * position, a cancel reason, a tool-loading warning and a compaction result
+ * used to flow past as a bare type label with an empty body — the operator
+ * had to open the raw payload to learn why a task was cancelled or what the
+ * gateway said (F3105).
+ */
 function summarize(type: string, data: Record<string, unknown>): string {
   const u = data.usage as { input_tokens?: number; output_tokens?: number } | undefined;
   const result = data.result as
@@ -41,6 +55,9 @@ function summarize(type: string, data: Record<string, unknown>): string {
     | undefined;
   const err = data.error as { code?: string; message?: string } | string | undefined;
   switch (type) {
+    case "task.queued":
+    case "task.queue_update":
+      return queueSummary(data);
     case "task.started":
       return `model=${data.model} workdir=${data.workdir} effort=${data.effort ?? "?"}`;
     case "task.completed":
@@ -49,10 +66,43 @@ function summarize(type: string, data: Record<string, unknown>): string {
       return typeof err === "string"
         ? err.slice(0, 120)
         : `${err?.code ?? ""} ${err?.message ?? ""}`.trim().slice(0, 120);
+    case "task.cancelled":
+      return data.reason ? `cancelled — ${String(data.reason).slice(0, 100)}` : "cancelled";
+    case "task.timed_out":
+      return `timed out after ${Math.round(Number(data.timeout_ms ?? 0) / 1000)}s`;
+    case "step.started":
+      return `step ${String(data.step ?? "?")}`;
     case "step.request":
       return `→ model=${data.model} effort=${data.effort ?? "—"} msgs=${data.messages} tools=${data.tools} max=${data.max_tokens}`;
     case "step.finished":
       return `← ${data.finish_reason} in=${u?.input_tokens ?? "?"} out=${u?.output_tokens ?? "?"} ctx=${data.context_tokens}`;
+    case "tools.loaded": {
+      const warnings = Array.isArray(data.warnings) ? (data.warnings as unknown[]) : [];
+      const parts = [`${String(data.count ?? 0)} tools · ${String(data.source ?? "?")}`];
+      if (data.error) parts.push(`error: ${String(data.error).slice(0, 80)}`);
+      if (warnings.length) {
+        parts.push(`${warnings.length} warning${warnings.length === 1 ? "" : "s"}: ${String(warnings[0]).slice(0, 60)}${warnings.length > 1 ? " …" : ""}`);
+      }
+      return parts.join(" · ");
+    }
+    case "session.compacting":
+      return `reason=${String(data.reason)} · ${String(data.messages)} msgs · ctx=${data.context_tokens ?? "?"}${data.threshold !== undefined ? ` (threshold ${String(data.threshold)})` : ""}`;
+    case "session.compacted":
+      return data.compacted
+        ? `${String(data.turns_summarized)} turns summarized, ${String(data.turns_kept)} kept · ${String(data.messages_before)} → ${String(data.messages_after)} msgs`
+        : String(data.note ?? "not compacted");
+    case "session.cache_mode_locked":
+      return `cache ${String(data.requested)} requested · session stays on ${String(data.locked)}`;
+    case "context.cleared": {
+      const n = Number(data.cleared ?? 0);
+      return `${n} old tool result${n === 1 ? "" : "s"} cleared · ctx=${String(data.context_tokens)}`;
+    }
+    case "agent.todos": {
+      const todos = Array.isArray(data.todos) ? (data.todos as { status?: unknown }[]) : [];
+      const byStatus = new Map<string, number>();
+      for (const todo of todos) byStatus.set(String(todo.status), (byStatus.get(String(todo.status)) ?? 0) + 1);
+      return `${todos.length} todo${todos.length === 1 ? "" : "s"}${[...byStatus].map(([status, n]) => ` · ${n} ${status}`).join("")}`;
+    }
     case "tool.started":
       return `${data.name}${data.external ? " (external)" : ""} ${JSON.stringify(data.input).slice(0, 90)}`;
     case "tool.finished":

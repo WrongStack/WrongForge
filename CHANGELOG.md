@@ -7,6 +7,14 @@ package.json and the git tags that drive the release workflow.
 ## [Unreleased]
 
 ### Fixed
+- **Half of the task event types no longer flow through the live feed as a
+  bare type label (`F3105`).** `task.cancelled` (and its reason),
+  `task.timed_out`, `task.queued` / `task.queue_update` (queue position and
+  what the task is waiting for), `tools.loaded` (count, source, the first
+  warning or the gateway error), `session.compacting` / `session.compacted`,
+  `session.cache_mode_locked`, `context.cleared`, `step.started` and
+  `agent.todos` had no one-line summary: the operator had to open the raw
+  payload to learn why a task was cancelled or what a gateway said.
 - **The Sessions dialog no longer reports a failed fetch as an empty session
   (`F3104`).** When `GET /v1/sessions/{id}/messages` failed, the dialog said
   "no stored messages"; it now says "could not load messages: …" with the
